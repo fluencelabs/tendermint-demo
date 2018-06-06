@@ -5,6 +5,15 @@ import kvstore.MerkleUtil._
 import scala.collection.immutable.HashMap
 import scala.util.Try
 
+/**
+  * Node
+  *
+  * merkleHash set to None when branch changed. Later None merkle hashes recalculated when [[Node.merkelize]] invoked
+  *
+  * @param children child nodes
+  * @param value assigned value, if exists
+  * @param merkleHash Merkle hash of a node's subtree, if calculated
+  */
 case class Node(children: NodeStorage, value: Option[String], merkleHash: Option[MerkleHash]) {
   def merkelize(): Node =
     if (merkleHash.isDefined)
@@ -34,6 +43,9 @@ case class Node(children: NodeStorage, value: Option[String], merkleHash: Option
 
     key match {
       case rangeKeyValuePattern(rangeStartStr, rangeEndStr, keyPattern) =>
+        // range pattern allows to set multiple keys in single transaction
+        // range defined by starting and ending index, key pattern may contains hexadecimal digits of current index
+
         val rangeStart = rangeStartStr.toInt
         val rangeEnd = rangeEndStr.toInt
         System.out.println(s"setting range from=$rangeStart to=$rangeEnd keyPattern=$keyPattern valuePattern=$value")

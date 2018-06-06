@@ -19,4 +19,7 @@ object MerkleUtil {
 
   def merkleHashToHex(merkleHash: MerkleHash): String =
     merkleHash.map("%02x".format(_)).mkString
+
+  def twoLevelMerkleListToString(list: List[List[MerkleHash]]): String =
+    list.map(level => level.map(MerkleUtil.merkleHashToHex).mkString(" ")).mkString(", ")
 }

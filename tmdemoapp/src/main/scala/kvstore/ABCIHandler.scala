@@ -3,38 +3,29 @@ package kvstore
 import java.nio.ByteBuffer
 
 import com.github.jtendermint.jabci.api._
-import com.github.jtendermint.jabci.socket.TSocket
 import com.github.jtendermint.jabci.types.{ResponseCheckTx, _}
 import com.google.protobuf.ByteString
 
 import scala.collection.mutable.ArrayBuffer
 
-object KVStoreServerRunner extends IDeliverTx with ICheckTx with ICommit with IQuery {
-
-  def main(args: Array[String]): Unit = {
-    KVStoreServerRunner.start()
-  }
-
+/**
+  * Tendermint establishes 3 socket connections with the app:
+  * - Mempool for CheckTx
+  * - Consensus for DeliverTx and Commit
+  * - Info for Query
+  *
+  * According to specification the app maintains separate in-memory states for every connections:
+  * – [[ABCIHandler.consensusRoot]]: the latest state modified with every successful transaction on DeliverTx
+  * – [[ABCIHandler.storage]]: array of committed snapshots for Info connection
+  * – [[ABCIHandler.mempoolRoot]]: the latest committed snapshot for Mempool connection (not used currently)
+  */
+object ABCIHandler extends IDeliverTx with ICheckTx with ICommit with IQuery {
   private val storage: ArrayBuffer[Node] = new ArrayBuffer[Node]()
 
   private var consensusRoot: Node = Node.emptyNode
 
   @volatile
   private var mempoolRoot: Node = Node.emptyNode
-
-  def start(): Unit = {
-    System.out.println("starting KVStore")
-    val socket = new TSocket
-
-    socket.registerListener(this)
-
-    val t = new Thread(() => socket.start(46658))
-    t.setName("KVStore server Main Thread")
-    t.start()
-    while (true) {
-      Thread.sleep(1000L)
-    }
-  }
 
   override def receivedDeliverTx(req: RequestDeliverTx): ResponseDeliverTx = {
     val tx = req.getTx.toStringUtf8
@@ -72,7 +63,8 @@ object KVStoreServerRunner extends IDeliverTx with ICheckTx with ICommit with IQ
   }
 
   override def requestCheckTx(req: RequestCheckTx): ResponseCheckTx = {
-    // check mempoolRoot
+    // no transaction processing logic currently
+    // mempoolRoot is intended to be used here as the latest committed state
 
     val tx = req.getTx.toStringUtf8
     if (tx == "BAD_CHECK") {
@@ -104,28 +96,18 @@ object KVStoreServerRunner extends IDeliverTx with ICheckTx with ICommit with IQ
     val lsPattern = "ls:(.*)".r
 
     val query = req.getData.toStringUtf8
-    query match {
-      case getPattern(key) =>
-        val result = root.getValue(key)
-        val proof = if (result.isDefined && req.getProve) twoLevelMerkleListToString(root.getProof(key)) else ""
-
-        ResponseQuery.newBuilder.setCode(CodeType.OK)
-          .setValue(ByteString.copyFromUtf8(result.getOrElse("")))
-          .setProof(ByteString.copyFromUtf8(proof))
-          .build
-      case lsPattern(key) =>
-        val result = root.listChildren(key)
-        val proof = if (result.isDefined && req.getProve) twoLevelMerkleListToString(root.getProof(key)) else ""
-
-        ResponseQuery.newBuilder.setCode(CodeType.OK)
-          .setValue(ByteString.copyFromUtf8(result.map(x => x.mkString(" ")).getOrElse("")))
-          .setProof(ByteString.copyFromUtf8(proof))
-          .build
+    val (key, result) = query match {
+      case getPattern(key) => (key, root.getValue(key))
+      case lsPattern(key) => (key, root.listChildren(key).map(x => x.mkString(" ")))
       case _ =>
-        ResponseQuery.newBuilder.setCode(CodeType.BAD).setLog("Invalid query path. Got " + query).build
+        return ResponseQuery.newBuilder.setCode(CodeType.BAD).setLog("Invalid query path. Got " + query).build
     }
-  }
 
-  private def twoLevelMerkleListToString(list: List[List[MerkleHash]]): String =
-    list.map(level => level.map(MerkleUtil.merkleHashToHex).mkString(" ")).mkString(", ")
+    val proof = if (result.isDefined && req.getProve) MerkleUtil.twoLevelMerkleListToString(root.getProof(key)) else ""
+
+    ResponseQuery.newBuilder.setCode(CodeType.OK)
+      .setValue(ByteString.copyFromUtf8(result.getOrElse("")))
+      .setProof(ByteString.copyFromUtf8(proof))
+      .build
+  }
 }
