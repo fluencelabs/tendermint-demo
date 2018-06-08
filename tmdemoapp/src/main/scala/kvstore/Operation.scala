@@ -52,9 +52,10 @@ case class HierarchicalSumOperation(arg: String) extends Operation {
   }
 
   private def calculate(node: Node): Option[Long] = {
-    val nodeValue = if (node.value.isDefined) node.longValue else Some(0L)
-    val childrenValues = node.children.values.foldLeft(Option(0L))((acc, node) => acc.flatMap(x => calculate(node).map(_ + x)))
-    nodeValue.flatMap(x => childrenValues.map(x + _))
+    for {
+      nodeValue <- node.longValue.orElse(Some(0L))
+      childrenValues <- node.children.values.foldLeft(Option(0L))((acc, node) => acc.flatMap(x => calculate(node).map(_ + x)))
+    } yield nodeValue + childrenValues
   }
 }
 

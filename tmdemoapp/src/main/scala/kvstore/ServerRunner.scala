@@ -5,7 +5,7 @@ import com.github.jtendermint.jabci.socket.TSocket
 object ServerRunner {
 
   def main(args: Array[String]): Unit = {
-    val port = if (args.length > 0) args(0).toInt else 46658
+    val port = if (args.length > 0) args(0).toInt else ClusterUtil.defaultABCIPort
     ServerRunner.start(port)
   }
 
@@ -13,13 +13,16 @@ object ServerRunner {
     System.out.println("starting KVStore")
     val socket = new TSocket
 
-    socket.registerListener(ABCIHandler)
+    val abciHandler = new ABCIHandler(ClusterUtil.abciPortToServerIndex(port))
+    socket.registerListener(abciHandler)
 
-    val t = new Thread(() => socket.start(port))
-    t.setName("KVStore server Main Thread")
-    t.start()
-    while (true) {
-      Thread.sleep(1000L)
-    }
+    val monitorThread = new Thread(new ServerMonitor(abciHandler))
+    monitorThread.setName("Monitor")
+    monitorThread.start()
+
+    val socketThread = new Thread(() => socket.start(port))
+    socketThread.setName("Socket")
+    socketThread.start()
+    socketThread.join()
   }
 }

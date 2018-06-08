@@ -7,6 +7,7 @@ import com.github.jtendermint.jabci.types.{ResponseCheckTx, _}
 import com.google.protobuf.ByteString
 
 import scala.collection.mutable.ArrayBuffer
+import scala.util.matching.Regex
 
 /**
   * Tendermint establishes 3 socket connections with the app:
@@ -19,24 +20,43 @@ import scala.collection.mutable.ArrayBuffer
   * – [[ABCIHandler.storage]]: array of committed snapshots for Info connection
   * – [[ABCIHandler.mempoolRoot]]: the latest committed snapshot for Mempool connection (not used currently)
   */
-object ABCIHandler extends IDeliverTx with ICheckTx with ICommit with IQuery {
+class ABCIHandler(val serverIndex: Int) extends IDeliverTx with ICheckTx with ICommit with IQuery {
   private val storage: ArrayBuffer[Node] = new ArrayBuffer[Node]()
 
   private var consensusRoot: Node = Node.emptyNode
 
-  @volatile
-  private var mempoolRoot: Node = Node.emptyNode
+  @volatile private var mempoolRoot: Node = Node.emptyNode
+
+  def lastCommittedHeight: Int = storage.size - 1
+
+  var lastAppHash: Option[MerkleHash] = None
+  var lastVerifiableAppHash: Option[MerkleHash] = None
+
+  var currentBlockHasTransactions: Boolean = false
+  var lastBlockHasTransactions: Boolean = false
+  var lastBlockTimestamp: Long = 0
+
+  private def appHash: Option[MerkleHash] = possiblyWrongAppHash
+
+  private def possiblyWrongAppHash: Option[MerkleHash] = correctAppHash.map(_ ++ Array(if (isByzantine) 1.toByte else 0.toByte))
+
+  private def correctAppHash: Option[MerkleHash] = consensusRoot.merkleHash
+
+  // This would return true since `wrong` key maps to any string that contains `serverIndex`
+  private def isByzantine: Boolean = consensusRoot.getValue("wrong").exists(_.contains(serverIndex.toString))
+
+  private val binaryOpPattern: Regex = "(.+)=(.+):(.*),(.*)".r
+  private val unaryOpPattern: Regex = "(.+)=(.+):(.*)".r
+  private val plainValuePattern: Regex = "(.+)=(.*)".r
 
   override def receivedDeliverTx(req: RequestDeliverTx): ResponseDeliverTx = {
+    currentBlockHasTransactions = true
+
     val tx = req.getTx.toStringUtf8
     val txPayload = tx.split("###")(0)
 
-    val binaryOpPattern = "(.+)=(.+):(.*),(.*)".r
-    val unaryOpPattern = "(.+)=(.+):(.*)".r
-    val plainValuePattern = "(.+)=(.*)".r
-
     val result = txPayload match {
-      case "BAD_DELIVER" => Left("BAD_DELIVER")
+      case resp @ "BAD_DELIVER" => Left(resp)
       case binaryOpPattern(key, op, arg1, arg2) =>
         op match {
           case "sum" => SumOperation(arg1, arg2)(consensusRoot, key)
@@ -77,16 +97,22 @@ object ABCIHandler extends IDeliverTx with ICheckTx with ICommit with IQuery {
   }
 
   override def requestCommit(requestCommit: RequestCommit): ResponseCommit = {
+    lastVerifiableAppHash = lastAppHash
+
     consensusRoot = consensusRoot.merkelize()
 
-    val buf = ByteBuffer.allocate(MerkleUtil.merkleSize)
-    buf.put(consensusRoot.merkleHash.get)
-    buf.rewind
+    val buffer = ByteBuffer.wrap(appHash.get)
 
     storage.append(consensusRoot)
     mempoolRoot = consensusRoot
 
-    ResponseCommit.newBuilder.setData(ByteString.copyFrom(buf)).build
+    lastBlockTimestamp = System.currentTimeMillis
+    lastBlockHasTransactions = currentBlockHasTransactions
+    currentBlockHasTransactions = false
+    lastAppHash = appHash
+    System.out.println(s"Commit height=$lastCommittedHeight app_hash=${MerkleUtil.merkleHashToHex(lastAppHash.get)}")
+
+    ResponseCommit.newBuilder.setData(ByteString.copyFrom(buffer)).build
   }
 
   override def requestQuery(req: RequestQuery): ResponseQuery = {
@@ -96,14 +122,14 @@ object ABCIHandler extends IDeliverTx with ICheckTx with ICommit with IQuery {
     val lsPattern = "ls:(.*)".r
 
     val query = req.getData.toStringUtf8
-    val (key, result) = query match {
+    val (resultKey, result) = query match {
       case getPattern(key) => (key, root.getValue(key))
       case lsPattern(key) => (key, root.listChildren(key).map(x => x.mkString(" ")))
       case _ =>
         return ResponseQuery.newBuilder.setCode(CodeType.BAD).setLog("Invalid query path. Got " + query).build
     }
 
-    val proof = if (result.isDefined && req.getProve) MerkleUtil.twoLevelMerkleListToString(root.getProof(key)) else ""
+    val proof = if (result.isDefined && req.getProve) MerkleUtil.twoLevelMerkleListToString(root.getProof(resultKey)) else ""
 
     ResponseQuery.newBuilder.setCode(CodeType.OK)
       .setValue(ByteString.copyFromUtf8(result.getOrElse("")))
