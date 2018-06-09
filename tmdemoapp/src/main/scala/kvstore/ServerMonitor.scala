@@ -14,33 +14,40 @@ import scala.util.Try
   * @param handler handler to monitor
   */
 class ServerMonitor(handler: ABCIHandler) extends Runnable {
+  private val monitorPeriod = 1000
+  private val checkEmptyBlockThreshold = 5000
+  private val checkForLocalEmptyBlockAlertThreshold = 15000
   private val parser = new JsonParser()
 
   override def run(): Unit = {
     while (true) {
-      Thread.sleep(1000)
-      val clusterHash = getAppHashFromPeers(handler.lastCommittedHeight + 1).getOrElse("")
-      val localHash = handler.lastVerifiableAppHash.map(MerkleUtil.merkleHashToHex).getOrElse("")
+      Thread.sleep(monitorPeriod)
+
+      val state = handler.state
+      val clusterHash = getAppHashFromPeers(state.lastCommittedHeight).getOrElse("")
+      val localHash = state.lastVerifiableAppHash.map(MerkleUtil.merkleHashToHex).getOrElse("")
 
       if (clusterHash != localHash) {
         throw new IllegalStateException("Cluster quorum has unexpected app hash for previous block")
       }
 
-      if (timeWaitingForEmptyBlock > 3000) {
-        val nextClusterHash = getAppHashFromPeers(handler.lastCommittedHeight + 2)
+      val timeWaiting = timeWaitingForEmptyBlock(state)
+      if (timeWaiting > checkEmptyBlockThreshold) {
+        val nextClusterHash = getAppHashFromPeers(state.lastCommittedHeight + 1)
 
         if (nextClusterHash.isEmpty) {
           System.out.println("NO CLUSTER QUORUM!")
-        } else if (nextClusterHash != handler.lastAppHash.map(MerkleUtil.merkleHashToHex)) {
+        } else if (nextClusterHash != state.lastAppHash.map(MerkleUtil.merkleHashToHex)) {
           System.out.println("DISAGREEMENT WITH CLUSTER QUORUM!")
-        } else if (timeWaitingForEmptyBlock > 15000) {
+        } else if (timeWaiting > checkForLocalEmptyBlockAlertThreshold) {
           throw new IllegalStateException("Cluster quorum committed correct block without local Tendermint")
         }
       }
     }
   }
 
-  def timeWaitingForEmptyBlock: Long = if (handler.lastBlockHasTransactions) System.currentTimeMillis() - handler.lastBlockTimestamp else 0L
+  def timeWaitingForEmptyBlock(state: BlockchainState): Long =
+    if (state.lastBlockHasTransactions) System.currentTimeMillis() - state.lastBlockTimestamp else 0L
 
   def getAppHashFromPeers(height: Int): Option[String] =
     ClusterUtil.peerRPCAddresses(handler.serverIndex)
@@ -58,5 +65,4 @@ class ServerMonitor(handler: ABCIHandler) extends Runnable {
         .getAsJsonObject.get("app_hash")
         .getAsString
         .toLowerCase)
-
 }

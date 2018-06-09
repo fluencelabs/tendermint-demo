@@ -1,12 +1,12 @@
 package kvstore
 
 import java.nio.ByteBuffer
+import java.util.concurrent.CopyOnWriteArrayList
 
 import com.github.jtendermint.jabci.api._
 import com.github.jtendermint.jabci.types.{ResponseCheckTx, _}
 import com.google.protobuf.ByteString
 
-import scala.collection.mutable.ArrayBuffer
 import scala.util.matching.Regex
 
 /**
@@ -21,29 +21,29 @@ import scala.util.matching.Regex
   * – [[ABCIHandler.mempoolRoot]]: the latest committed snapshot for Mempool connection (not used currently)
   */
 class ABCIHandler(val serverIndex: Int) extends IDeliverTx with ICheckTx with ICommit with IQuery {
-  private val storage: ArrayBuffer[Node] = new ArrayBuffer[Node]()
+  @volatile var state: BlockchainState = BlockchainState()
 
-  private var consensusRoot: Node = Node.emptyNode
-
+  private val storage: CopyOnWriteArrayList[Node] = new CopyOnWriteArrayList[Node]()
   @volatile private var mempoolRoot: Node = Node.emptyNode
 
-  def lastCommittedHeight: Int = storage.size - 1
 
-  var lastAppHash: Option[MerkleHash] = None
-  var lastVerifiableAppHash: Option[MerkleHash] = None
+  override def requestCheckTx(req: RequestCheckTx): ResponseCheckTx = {
+    // no transaction processing logic currently
+    // mempoolRoot is intended to be used here as the latest committed state
 
-  var currentBlockHasTransactions: Boolean = false
-  var lastBlockHasTransactions: Boolean = false
-  var lastBlockTimestamp: Long = 0
+    val tx = req.getTx.toStringUtf8
+    if (tx == "BAD_CHECK") {
+      System.out.println(s"CheckTx BAD: $tx")
+      ResponseCheckTx.newBuilder.setCode(CodeType.BAD).setLog("BAD_CHECK").build
+    } else {
+      System.out.println(s"CheckTx OK: $tx")
+      ResponseCheckTx.newBuilder.setCode(CodeType.OK).build
+    }
+  }
 
-  private def appHash: Option[MerkleHash] = possiblyWrongAppHash
 
-  private def possiblyWrongAppHash: Option[MerkleHash] = correctAppHash.map(_ ++ Array(if (isByzantine) 1.toByte else 0.toByte))
-
-  private def correctAppHash: Option[MerkleHash] = consensusRoot.merkleHash
-
-  // This would return true since `wrong` key maps to any string that contains `serverIndex`
-  private def isByzantine: Boolean = consensusRoot.getValue("wrong").exists(_.contains(serverIndex.toString))
+  private var consensusRoot: Node = Node.emptyNode
+  private var currentBlockHasTransactions: Boolean = false
 
   private val binaryOpPattern: Regex = "(.+)=(.+):(.*),(.*)".r
   private val unaryOpPattern: Regex = "(.+)=(.+):(.*)".r
@@ -53,10 +53,11 @@ class ABCIHandler(val serverIndex: Int) extends IDeliverTx with ICheckTx with IC
     currentBlockHasTransactions = true
 
     val tx = req.getTx.toStringUtf8
+    System.out.println(s"DeliverTx: $tx")
     val txPayload = tx.split("###")(0)
 
     val result = txPayload match {
-      case resp @ "BAD_DELIVER" => Left(resp)
+      case resp@"BAD_DELIVER" => Left(resp)
       case binaryOpPattern(key, op, arg1, arg2) =>
         op match {
           case "sum" => SumOperation(arg1, arg2)(consensusRoot, key)
@@ -82,42 +83,34 @@ class ABCIHandler(val serverIndex: Int) extends IDeliverTx with ICheckTx with IC
     }
   }
 
-  override def requestCheckTx(req: RequestCheckTx): ResponseCheckTx = {
-    // no transaction processing logic currently
-    // mempoolRoot is intended to be used here as the latest committed state
-
-    val tx = req.getTx.toStringUtf8
-    if (tx == "BAD_CHECK") {
-      System.out.println(s"CheckTx: $tx BAD")
-      ResponseCheckTx.newBuilder.setCode(CodeType.BAD).setLog("BAD_CHECK").build
-    } else {
-      System.out.println(s"CheckTx: $tx OK")
-      ResponseCheckTx.newBuilder.setCode(CodeType.OK).build
-    }
-  }
-
   override def requestCommit(requestCommit: RequestCommit): ResponseCommit = {
-    lastVerifiableAppHash = lastAppHash
-
     consensusRoot = consensusRoot.merkelize()
 
     val buffer = ByteBuffer.wrap(appHash.get)
 
-    storage.append(consensusRoot)
+    storage.add(consensusRoot)
     mempoolRoot = consensusRoot
 
-    lastBlockTimestamp = System.currentTimeMillis
-    lastBlockHasTransactions = currentBlockHasTransactions
+    state = BlockchainState(storage.size, appHash, state.lastAppHash, currentBlockHasTransactions, System.currentTimeMillis())
     currentBlockHasTransactions = false
-    lastAppHash = appHash
-    System.out.println(s"Commit height=$lastCommittedHeight app_hash=${MerkleUtil.merkleHashToHex(lastAppHash.get)}")
+    System.out.println(s"Commit: height=${state.lastCommittedHeight} hash=${state.lastAppHash.map(MerkleUtil.merkleHashToHex).getOrElse("EMPTY")}")
 
     ResponseCommit.newBuilder.setData(ByteString.copyFrom(buffer)).build
   }
 
+  private def appHash: Option[MerkleHash] = possiblyWrongAppHash
+
+  private def possiblyWrongAppHash: Option[MerkleHash] = correctAppHash.map(_ ++ Array(if (isByzantine) 1.toByte else 0.toByte))
+
+  private def correctAppHash: Option[MerkleHash] = consensusRoot.merkleHash
+
+  // This would return true since `wrong` key maps to any string that contains `serverIndex`
+  private def isByzantine: Boolean = consensusRoot.getValue("wrong").exists(_.contains(serverIndex.toString))
+
+
   override def requestQuery(req: RequestQuery): ResponseQuery = {
-    val height = if (req.getHeight != 0) req.getHeight.toInt - 1 else storage.size - 1
-    val root = storage(height)
+    val height = if (req.getHeight != 0) req.getHeight.toInt - 1 else state.lastCommittedHeight
+    val root = storage.get(height - 1) // storage is 0-indexed, but heights are 1-indexed
     val getPattern = "get:(.*)".r
     val lsPattern = "ls:(.*)".r
 
