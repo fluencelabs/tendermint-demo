@@ -1,6 +1,9 @@
 # Tendermint Demo ABCI KVStore on Scala
 ## Abstract
-This is demo application modeling in-memory key-value distributed storage. It allows to store key-value pairs, request them and make some operations with their values. A *distributed* property means that the app might be deployed across several machines (nodes) and tolerant to failures of some subset of those machines. At the same time the client typically interacts with only a single node and the interaction protocol provides some guarantees of availability and consistency.
+This is demo application modeling in-memory key-value distributed storage. It allows to store key-value pairs, request them and make some operations with their values.
+![Key-values in cluster](cluster_key_value.png)
+A *distributed* property means that the app might be deployed across cluster of several machines (nodes) and tolerant to failures of some subset of those machines. At the same time the client typically interacts with only a single node and the interaction protocol provides some guarantees of availability and consistency.
+![Nodes in cluster](cluster_nodes.png)
 
 ## Motivation
 The application is intented to show a proof-of-concept of a system that provides the following properties:
@@ -26,7 +29,7 @@ The application is written in Scala 2.12. It is compatible with `Tendermint v0.1
 
 It models in-memory key-value string storage. Key here are hierarchical, `/`-separated. This key hierarchy is *merkelized*, so every node stores Merkle hash of its associated value (if present) and its children.
 
-![Architecture.png](architecture.png)
+![Architecture](architecture.png)
 
 The entire application consists of the following components:
 * **Client** proxy (**Proxy**)
