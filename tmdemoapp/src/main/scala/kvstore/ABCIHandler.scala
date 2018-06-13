@@ -7,6 +7,7 @@ import com.github.jtendermint.jabci.api._
 import com.github.jtendermint.jabci.types.{ResponseCheckTx, _}
 import com.google.protobuf.ByteString
 
+import scala.util.Try
 import scala.util.matching.Regex
 
 /**
@@ -109,7 +110,7 @@ class ABCIHandler(val serverIndex: Int) extends IDeliverTx with ICheckTx with IC
 
 
   override def requestQuery(req: RequestQuery): ResponseQuery = {
-    val height = if (req.getHeight != 0) req.getHeight.toInt - 1 else state.lastCommittedHeight
+    val height = Try(req.getHeight.toInt).toOption.filter(_ > 0).getOrElse(state.lastCommittedHeight)
     val root = storage.get(height - 1) // storage is 0-indexed, but heights are 1-indexed
     val getPattern = "get:(.*)".r
     val lsPattern = "ls:(.*)".r

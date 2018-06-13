@@ -7,7 +7,7 @@ Fluence is distributed computations platform. It contains following components:
 
 Clients typically interact with Fluence via local Proxy. Basically Proxy provides some API like:
 ```scala
-fun doSomeOperation(req: SomeRequest): SomeResponse
+def doSomeOperation(req: SomeRequest): SomeResponse
 ```
 
 ## Normal-case operation
