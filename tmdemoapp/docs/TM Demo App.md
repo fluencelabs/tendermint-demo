@@ -3,7 +3,7 @@
 This is demo application modeling in-memory key-value distributed storage. It allows to store and modify key-value pairs, request them and make some operations with their values.
 ![Key-values in cluster](cluster_key_value.png)
 
-A *distributed* property means that the app might be deployed across cluster of several machines (nodes) and tolerant to failures of some subset of those machines. At the same time the client typically interacts with only a single node and the interaction protocol provides some guarantees of availability and consistency.
+A *distributed* property means that the app might be deployed across cluster of several machines (nodes) and tolerate failures of some subset of those machines. At the same time the client typically interacts with only a single node and the interaction protocol provides some guarantees of availability and consistency.
 ![Nodes in cluster](cluster_nodes.png)
 
 ## Motivation
@@ -77,22 +77,22 @@ After successful launch the client can communicate with application via sending 
 There are scripts that automate deployment and running 4 Application nodes on local machine.
 
 ```bash
-node4-init.sh
+source node4-init.sh
 ```
 `node4-init.sh` prepares all required configuration files to launch 4-node cluster locally.
 
 ```bash
-node4-start.sh
+./node4-start.sh
 ```
 `node4-start.sh` starts 8 screen instances (`app[1-4]` instances for the app and `tm[1-4]` – for TM Core). Cluster initialization may take some seconds, after that the client can query RPC endpoints on any of `46158`, `46258`, `46358` or `46458` ports.
 
-Other scripts allow to temporarily stop (`node4-stop.sh`), delete (`node4-delete.sh`) and reinitialize (`node4-reset.sh`) the cluster.
+Other scripts allow to temporarily stop (`node4-stop.sh`), delete (`node4-delete.sh`) and reinitialize/rerun (`node4-reset.sh`) the cluster.
 
 
 ## Sending queries
 
 ### Transactions
-Examples below use `localhost:46157` to query TM Core, for 4-node single-machine cluster requests to other endpoints (`46257`, `46357`, `46457`) behave the same way. For single-node launch (just one TM and one App) default port is `46657`)
+Examples below use `localhost:46157` to query TM Core, for 4-node single-machine cluster requests to other endpoints (`46257`, `46357`, `46457`) behave the same way. For single-node launch (just one TM and one App) the default port is `46657`.
 
 To set a new key-value mapping use:
 ```bash
@@ -120,7 +120,7 @@ python query.py localhost:46157 tx a/c=get:a/b
 INFO:   10
 ```
 
-Submitting an `increment` transaction increments the referenced key value and copy the old referenced key value to target key:
+Submitting an `increment` transaction increments the referenced key value and copies the old referenced key value to target key:
 ```bash
 python query.py localhost:46157 tx a/d=increment:a/c
 ...
@@ -133,7 +133,7 @@ python query.py localhost:46157 tx a/d=increment:a/c###again
 INFO:   11
 ```
 
-`sum` transaction sums the values of references keys and assign the result to the target key:
+`sum` transaction sums the values of references keys and assigns the result to the target key:
 ```bash
 python query.py localhost:46157 tx a/e=sum:a/c,a/d
 ...
@@ -154,7 +154,7 @@ python query.py localhost:46157 tx c/asum=hiersum:a
 INFO:   3628856
 ```
 
-Transactions are not applied in case of wrong arguments (non-integer values to `increment`, `sum`, `factorial` or wrong number of arguments). Transactions with a target key like `get`, `increment`, `sum`, `factorial` return the new value of the target key as `INFO`, but this values cannot be trusted if the serving node is not reliable. To verify the returned `INFO` one needs to `query` the target key explicitly.
+Transactions are not applied in case of wrong arguments (non-integer values to `increment`, `sum`, `factorial` or wrong number of arguments). Transactions with a target key like `get`, `increment`, `sum`, `factorial` return the new value of the target key as `INFO`, but this value is *tentative* cannot be trusted if the serving node is not reliable. To verify the returned `INFO` one needs to `query` the target key explicitly.
 
 ### Simple queries
 `get` reads values from KVStore:
@@ -171,7 +171,12 @@ RESULT: e f b c d
 ```
 
 ### Operations
-As mentioned above operation query is a combination of subsequent operation processing, writing its result to a special key and Merkelized read of this key. Below is the example (note that no target key specified here):
+As mentioned above operation query is a combination of subsequent:
+* operation processing,
+* writing its result to a special key
+* and Merkelized read of this key.
+
+Below is the example (note that no target key specified here):
 ```bash
 python query.py localhost:46157 op factorial:a/b
 ...
@@ -181,17 +186,17 @@ RESULT: 3628800
 ## Implementation details
 ### A. How Proxy sees operation processing
 Let's observe how operation processing looks like.
-1. Proxy gets call from the client.
+1. Proxy gets call with `op` from the client.
 2. Proxy decomposes operation into 2 interactions with cluster: transaction submit and response query.
-3. Obtains some state key `opTarget` (it is chosen from some pool of such temporary target keys).
+3. It obtains some state key `opTarget` (it might use different such keys and choose one of them somehow).
 4. For transaction submit Proxy:
-	* Serializes API call to some string `opTx` like: "opTarget=SomeOperation(reqParam1,reqParam2)". Its binary representation is *transaction* in terms of Tendermint.
-	* Queries some TM via RPC call: `http://<node_host>:46678/broadcast_tx_commit?tx=<opTx>`.
+	* Obtains `opTx` as `<opTarget>=<opTx>`. The `opTx` binary representation is *transaction* in terms of Tendermint.
+	* Queries some TM via RPC call: `http://<node_endpoint>/broadcast_tx_commit?tx=<opTx>`.
 	* In case of correct (without error messages and not timed out) TM response it treats `height` from it as `opHeight` and considers transaction committed (but yet not validated) and proceeds to the next step.
 5. Proxy check whether `opHeight`-th block contains `opTx` indeed:
 	* Queries `http://<node_endpoint>/block?height=<opHeight>`.
 	* In case of correct TM response it checks for `opTx` existence in transaction list section of response and checks block signature.
-	* Upon leaving this step Proxy is sure that the cluster has already performed the operation, committed it to the state, but it has no information about reaching consensus for the operation result.
+	* Upon leaving this step Proxy is sure that the cluster already performed the operation, committed it to the state, but it has no information about reaching consensus for the operation result.
 6. Proxy waits for `opHeight+1`-th block to ensure cluster consensus for resulting app hash:
 	* Waits some small time.
 	* Starts periodically querying `http://<node_endpoint>/block?height=<opHeight+1>`.
@@ -253,7 +258,7 @@ Query processing on the App performed in the following way:
 4. The response containing value, Merkle proof and any other information are sent back to the local TM.
 
 ### Transactions and Merkle hashes
-Examples above demostrates usually a single transaction per block or empty blocks. Note that the App does not recalculate Merkle hashes during `DeliverTx` processing. In case of several transactions per block (when massive broadcasting of multiple transactions via `broadcast_tx_sync` or `broadcast_tx_async` RPCs performed), the App modifies key tree and marks changed paths by clearing Merkle hashes until ABCI `Commit` processing. On `Commit` the App recalculates Merkle hash along changed paths only. Finally the app returns the resulting root Merkle hash to Tendermint and this hash is stored as `app_hash` for corresponding height in the blockchain.
+Examples above demostrate usually a single transaction per block or empty blocks. Note that the App does not recalculate Merkle hashes during `DeliverTx` processing. In case of several transactions per block (when massive broadcasting of multiple transactions via `broadcast_tx_sync` or `broadcast_tx_async` RPCs performed), the App modifies key tree and marks changed paths by clearing Merkle hashes until ABCI `Commit` processing. On `Commit` the App recalculates Merkle hash along changed paths only. Finally the app returns the resulting root Merkle hash to Tendermint and this hash is stored as `app_hash` for corresponding height in the blockchain.
 
 Note that described merkelized structure is just for demo purposes and not self-balanced, it remains efficient only until it the user transactions keep it relatively balanced. Something like [Patricia tree](https://github.com/ethereum/wiki/wiki/Patricia-Tree) should be more appropriate to achieve self-balancing.
 
