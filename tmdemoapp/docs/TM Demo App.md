@@ -1,17 +1,17 @@
 # Tendermint Demo Key-Value Store on Scala
 
-This is demo application modeling in-memory key-value distributed storage. It allows to store and modify key-value pairs, request them and make some operations with their values.
+This is demo application modeling in-memory key-value distributed storage. It allows to store and modify key-value pairs, to request them and to make some operations with their values.
 ![Key-values in cluster](cluster_key_value.png)
 
-A *distributed* property means that the app might be deployed across cluster of several machines (nodes) and tolerate failures of some subset of those machines. At the same time the client typically interacts with only a single node and the interaction protocol provides some guarantees of availability and consistency.
+A *distributed* property means that the app might be deployed across a cluster of several machines (nodes) and tolerate failures of some subset of those machines. At the same time, the client typically interacts with only a single node and the interaction protocol provides some guarantees of availability and consistency.
 ![Nodes in cluster](cluster_nodes.png)
 
 ## Motivation
-The application is intented to show a proof-of-concept of a system that provides the following properties:
+The application is intended to show a proof-of-concept of a system that provides the following properties:
 * Support of arbitrary deterministic operations (including simple reads/writes and complex aggregations, time-consuming calculations etc.)
 * Having high throughput (1000 transaction per second) and low latency (1-2 seconds) of operations
-* Having every operation response verifiable (and thus trusted by client)
-	* Either validated by storing all operation data in the blockchain (in this case such data signed by majority of nodes)
+* Having every operation response verifiable (and thus trusted by the client)
+	* Either validated by storing all operation data in the blockchain (in this case such data signed by the majority of nodes)
 	* Or validated by providing Merkle proofs to the client (in this case the client has all required information to validate the response)
 * Ability to restore liveness and even safety after violating typical Byzantine quorum requirements (1/3 of failed nodes and more) – every node could rapidly detect problems in the blockchain or disagreement with the rest of nodes
 
@@ -19,16 +19,16 @@ The application is intented to show a proof-of-concept of a system that provides
 The application use [Tendermint](https://github.com/tendermint/tendermint) platform which provides:
 * Distributed transaction cache
 * Blockchain (to store transactions persistently)
-* Consensus logic (to reach agreement about order of transactions)
+* Consensus logic (to reach agreement about the order of transactions)
 * Peer-to-peer communication layer (between nodes)
 
 The application implements Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html) to follow Tendermint's architecture which decomposes the application logic into 2 main parts:
-* Distributed replicated tranasaction log (managed by Tendermint)
+* Distributed replicated transaction log (managed by Tendermint)
 * And state machine with business logic (manages by the application itself).
 
 The application is written in Scala 2.12. It is compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` for Java ABCI definitions.
 
-It models in-memory key-value string storage. Key here are hierarchical, `/`-separated. This key hierarchy is *merkelized*, so every node stores Merkle hash of its associated value (if present) and its children.
+It models in-memory key-value string storage. Keys here are hierarchical, `/`-separated. This key hierarchy is *merkelized*, so every node stores Merkle hash of its associated value (if present) and its children.
 
 ![Architecture](architecture.png)
 
@@ -38,7 +38,7 @@ The entire application consists of the following components:
 * Node ABCI Application itself (**App** or **ABCI App**)
 
 ### Operations
-Clients typically interact with Fluence via some local **Proxy**. This Proxy might be implemented in any language (because it communicates with TM Core by queries RPC endpoints), for example Scala implementation of *some operation* may look like `def doSomeOperation(req: SomeRequest): SomeResponse`. However this application uses simple (but powerful) Python `query.sh` script as Proxy to perform arbitraty operations, including:
+Clients typically interact with Fluence via some local **Proxy**. This Proxy might be implemented in any language (because it communicates with TM Core by queries RPC endpoints), for example, Scala implementation of *some operation* may look like `def doSomeOperation(req: SomeRequest): SomeResponse`. This application uses simple (but powerful) Python `query.sh` script as Proxy to perform arbitrary operations, including:
 * Write transactions
 `tx a/b=10`
 * Key read queries
@@ -71,10 +71,10 @@ tendermint node --consensus.create_empty_blocks=false
 
 In case Tendermint launched first, it would periodically try to connect the app until the app started. 
 
-After successful launch the client can communicate with application via sending RPC calls to TM Core on local `46678` port.
+After successful launch the client can communicate with the application via sending RPC calls to TM Core on local `46678` port.
 
 ### Cluster
-There are scripts that automate deployment and running 4 Application nodes on local machine.
+There are scripts that automate deployment and running 4 Application nodes on the local machine.
 
 ```bash
 source node4-init.sh
@@ -104,11 +104,11 @@ INFO:   10
 ```
 This creates hierarchical key `a/b` (if necessary) and map it to `10`. `HEIGHT` value could be used later to verify the `INFO` by querying the blockchain.
 
-This script outputs the height value corresponding to provided transaction. The height is available upon executing because `query.py` script uses `broadcast_tx_commit` RPC to send transactions to Tendermint. To query the latest transactions in the blockchain run:
+This script outputs the height value corresponding to the provided transaction. The height is available upon executing because `query.py` script uses `broadcast_tx_commit` RPC to send transactions to Tendermint. To query the latest transactions in the blockchain run:
 ```bash
 python parse_chain.py localhost:46157
 ```
-This command outputs last 50 non-empty blocks in chain with short summary about transactions. Here one can ensure that provided transaction indeed included in the block with height from response. This fact verifies that Tendermint majority (more than 2/3 of configured validator nodes) agreed on including this transaction in the mentioned block which certified by their signatures. Signature details (including information about all Consensus rounds and phases) can be found by requesting Tendermint RPC:
+This command outputs last 50 non-empty blocks in the blockchain with a short summary about transactions. Here one can ensure that the provided transaction indeed included in the block with height from the response. This fact verifies that Tendermint majority (more than 2/3 of configured validator nodes) agreed on including this transaction in the mentioned block which certified by their signatures. Signature details (including information about all Consensus rounds and phases) can be found by requesting Tendermint RPC:
 ```bash
 curl -s 'localhost:46157/block?height=_' # replace _ with actual height number
 ```
@@ -126,7 +126,7 @@ python query.py localhost:46157 tx a/d=increment:a/c
 ...
 INFO:   10
 ```
-To prevent Tendermint from declining transaction that repeats one of the previous applied transactions, it's possible to put any characters after `###` at the end of transaction string, this part of string ignored:
+To prevent Tendermint from declining transaction that repeats one of the previously applied transactions, it's possible to put any characters after `###` at the end of transaction string, this part of string ignored:
 ```bash
 python query.py localhost:46157 tx a/d=increment:a/c###again
 ...
@@ -217,32 +217,32 @@ Let's observe how operation processing looks like.
 Let's look how Tendermint on some node (say, N) treats transaction submit (step A4) and makes some post-submit checks (A5, A6).
 1. TM gets `broadcast_tx_commit` RPC call with `opTx` binary string from Proxy.
 2. Mempool processing:
-	* TM's RPC endpoint tranfers the transaction to TM's *Mempool* module.
+	* TM's RPC endpoint transfers the transaction to TM's *Mempool* module.
 	* Mempool invokes local App's `CheckTx` ABCI method. If App might reject the transaction, this information is sent to the client and no further action happens.
 	* The transaction gossip begins: the `opTx` starts spreading through other nodes.
 	* Also Mempool caches the transaction (in order to not accept repeated broadcasts of `opTx`).
 ![Mempool processing](mempool.png)
 3. Consensus processing:
-	* When the current TM *proposer* (this is some cluster node, not N in common case) is ready to create new block, it grabs some amount of the earliest yet not committed transactions from local Mempool. If the transaction rate is intensive enough or even exceed TM/App throughput, it is possible that `opTx` may 'wait' during several block formation before it would be grabbed by Consensus.
-	* As soon as `opTx` and other transactions reaches Consensus module, block election starts. Proposer creates block proposal (that describes all transactions in the current block) for current *round*, then other nodes make votes. In order to reach consensus for the block, election should pass all consensus stages (propose, pre-vote, pre-commit) with the majority of TM votes (more that 2/3 of cluster nodes). If it doesn't work by some reason (votes time out, Byzantive proposer), proposer changed and a new round starts (possibly with another transaction set for the current block).
+	* When the current TM *proposer* (this is some cluster node, not N in common case) is ready to create a new block, it grabs some amount of the earliest yet not committed transactions from local Mempool. If the transaction rate is intensive enough or even exceed TM/App throughput, it is possible that `opTx` may 'wait' during several block formation before it would be grabbed by Consensus.
+	* As soon as `opTx` and other transactions reach Consensus module, block election starts. Proposer creates block proposal (that describes all transactions in the current block) for current *round*, then other nodes make votes. In order to reach consensus for the block, the election should pass all consensus stages (propose, pre-vote, pre-commit) with the majority of TM votes (more that 2/3 of cluster nodes). If it doesn't work for some reason (votes timeout, Byzantive proposer), proposer changed and a new round starts (possibly with another transaction set for the current block).
 4. Post-consensus interaction with the local App:
-	* When election successfully passed all stages each corrent TM undertands that consensus is reached. Then it invokes App's ABCI methods: `BeginBlock`, `DeliverTx` (for each transaction), `EndBlock`, `Commit`.
+	* When election successfully passed all stages each correct TM understands that consensus is reached. Then it invokes App's ABCI methods: `BeginBlock`, `DeliverTx` (for each transaction), `EndBlock`, `Commit`.
 	* An information from `DeliverTx` call then sent back to Proxy
 	* `app_hash` field from `Commit` call is stored by TM before making the next block.
 ![Consensus processing](consensus.png)
-5. The new, `height`-th, block metadata and transaction set now committed and becomes available via RPC's like `block`, `blockchain`, `status` (including call in Step A5). However the recently obtained from App block's app hash yet not stored in the blockchain (because an App hash for some block stored in the blockchain metadata for the next block).
+5. The new, `height`-th, block metadata and transaction set now committed and becomes available via RPC's like `block`, `blockchain`, `status` (including call in Step A5). However the recently obtained from App block's app hash yet not stored in the blockchain (because an App hash for some block is stored in the blockchain metadata for the next block).
 6. Next block processing:
 	* Steps B2-B5 repeated for the next, `height+1`-th block. It may take some time, depending on new transactions availability and rate and commit timeout settings.
-	* The consensus for `height+1`-th block is only possible if the majority (more that 2/3 of TM's) agree about `height`-th block app hash. So `app_hash` information in `height+1`-th block header refers to `app_hash` provided on Step B4 for `height`-th block (which is checked on Step A6).
+	* The consensus for `height+1`-th block is only possible if the majority (more than 2/3 of TM's) agree about `height`-th block app hash. So `app_hash` information in `height+1`-th block header refers to `app_hash` provided on Step B4 for `height`-th block (which is checked on Step A6).
 
 ### C. How ABCI App sees transaction submit
 Now we dig into details of processing the transaction on App side (on node N).
-1. On Step B2 TM asks App via `CheckTx` call. This is lightweight checking that works well if some signification part of transactions might be rejected by App by some reason (for example it becomes inconsistent after applying some recently committed other transaction). This allows to avoid unnecessary transaction gossip and need of permanent storing such incorrect transaction in the blockchain after commit.
-	* In case `CheckTx` invoked once but `opTx` is not grabbed by proposer's Consensus module for the next block, `CheckTx` would be reinvoked for every subsequent block until `opTx` would eventually grabbed by proposer (because after some block commit, `opTx` might become incorrect and need to be `CheckTx`-ed).
+1. On Step B2 TM asks App via `CheckTx` call. This is lightweight checking that works well if some signification part of transactions might be rejected by App by some reason (for example it becomes inconsistent after applying some recently committed other transaction). This allows avoiding unnecessary transaction gossip and need of permanent storing such incorrect transaction in the blockchain after commit.
+	* In case `CheckTx` invoked once but `opTx` is not grabbed by proposer's Consensus module for the next block, `CheckTx` reinvoked for every subsequent block until `opTx` eventually grabbed by proposer (because after some block commit, `opTx` might become incorrect and need to be `CheckTx`-ed).
 2. On Step B4 TM invokes App's ABCI `DeliverTx` method.
-	* App can reject the transaction (it's OK because lightweight `CheckTx` does not necessary check any possible failure cases) and avoid to change anything. It this case TM would store the transaction anyway because the block already formed.
+	* App can reject the transaction (it's OK because lightweight `CheckTx` cannot check any possible failure cases) and avoid to change anything. It this case TM would store the transaction anyway because the block already formed.
 	* Normally App applies the transaction to the state. It maintains the 'real-time' state that already applied all previous changes not only from previous blocks' transactions but even for all previous transactions of the current block.
-3. On Step B4 TM also invokes App's ABCI `Commit` method that signals that block commit is over. App must return the actual state hash (*app hash*) as the result. As said before, this app hash would correspond to `height`-th block and be stored in the `height+1`-th block metadata.
+3. On Step B4 TM also invokes App's ABCI `Commit` method that signals that block commit is over. The App must return the actual state hash (*app hash*) as the result. As said before, this app hash would correspond to `height`-th block and be stored in the `height+1`-th block metadata.
 
 Note that to follow Tendermint architecture Step C2 and C3 behavior are purely deterministic. It guarantees in normal (non-Byzantine) case scenario both the same app hash from different nodes and the same app hash from a single node after replaying transactions by TM (for example when node recovers from fail). This determinism includes transaction acceptance status (accepted or rejected), transaction application to the real-time state and app hash computation logic.
 
@@ -255,36 +255,36 @@ Query processing on the App performed in the following way:
 1. App gets `height`, `prove` flag and `path` from the query.
 2. The query should be applied to the state exactly corresponded to `height`-th block (this is not 'real-time' consensus state and in general not 'mempool' state).
 	* In case App do not store all block states and `height` is too old, it might reject the query.
-	* Otherwise it applies query to the corresponding state. Queries might be complex enough but not every query might be proved efficiently. Therefore it's expected that queries are relatively simple like specific value's read or hierarchical structure scan.
+	* Otherwise it applies the query to the corresponding state. Queries might be complex enough but not every query might be proved efficiently. Therefore it's expected that queries are relatively simple like specific value's read or hierarchical structure scan.
 	* In case of read query on Step A7, App just reads `opTarget` value previously written by applying `opTx` and committed in `height`-th block.
 3. If proof flag requested (as on Step A7), App also produce Merkle path (or some other provable information) that supply `opTarget` value verification with respect to given `height` and it's app hash (from `height+1` block metadata)
-4. The response containing value, Merkle proof and any other information are sent back to the local TM.
+4. The response containing the value, Merkle proof and any other information sent back to the local TM.
 
 ### Transactions and Merkle hashes
-Examples above usually demostrate a single transaction per block or empty blocks. Note that the App does not recalculate Merkle hashes during `DeliverTx` processing. In case of several transactions per block (when massive broadcasting of multiple transactions via `broadcast_tx_sync` or `broadcast_tx_async` RPCs performed), the App modifies key tree and marks changed paths by clearing Merkle hashes until ABCI `Commit` processing.
+Examples above usually demonstrate a single transaction per block or empty blocks. Note that the App does not recalculate Merkle hashes during `DeliverTx` processing. In case of several transactions per block (when massive broadcasting of multiple transactions via `broadcast_tx_sync` or `broadcast_tx_async` RPCs performed), the App modifies key tree and marks changed paths by clearing Merkle hashes until ABCI `Commit` processing.
 
 ![Keys after DeliverTx](keys_delivertx.png)
 
-On `Commit` the App recalculates Merkle hash along changed paths only. Finally the app returns the resulting root Merkle hash to Tendermint and this hash is stored as `app_hash` for corresponding height in the blockchain.
+On `Commit` the App recalculates Merkle hash along changed paths only. Finally, the app returns the resulting root Merkle hash to Tendermint and this hash is stored as `app_hash` for corresponding height in the blockchain.
 
 ![Keys after Commit](keys_commit.png)
 
 Note that described merkelized structure is just for demo purposes and not self-balanced, it remains efficient only until it the user transactions keep it relatively balanced. Something like [Patricia tree](https://github.com/ethereum/wiki/wiki/Patricia-Tree) should be more appropriate to achieve self-balancing.
 
 ## Dispute cases
-The examples below illustrate different situations when cluster's liveness and safety properties are violated. This can be caused not only by Byzantine behavior of nodes but also by some failures or bugs on particular cluster nodes. These examples show that such situations can be efficiently detected while at least one correct node exists. To fix such disputes in the production system, some *Supervisor* side should exists and correct nodes should be able to communicate with it.
+The examples below illustrate different situations when cluster's liveness and safety properties are violated. This can be caused not only by Byzantine behavior of nodes but also by some failures or bugs on particular cluster nodes. These examples show that such situations can be efficiently detected while at least one correct node exists. To fix such disputes in the production system, some *Supervisor* side should exist and correct nodes should be able to communicate with it.
 
 ### Dispute case 1: some nodes honest, some not, no quorum
-When the last block is `height`-th and there are no quorum (neither honest, nor Byzantine) for `height+1`-th block's voting, liveness is violated and new blocks cannot be formed. Such situation might happen if cluster cannot reach an agreement about next block. Even if TM Core works as expected, different Apps on different nodes might provide to local TM's different app hashes for `height`-th block.
+When the last block is `height`-th and there is no quorum (neither honest nor Byzantine) for `height+1`-th block's voting, liveness is violated and new blocks cannot be formed. Such situation might happen if the cluster cannot reach an agreement about next block. Even if TM Core works as expected, different Apps on different nodes might provide to local TM's different app hashes for `height`-th block.
 
-To simulate `app_hash` disputes in 4-node cluster the App uses special key `wrong`. Every node's App (indexed 1 to 4 which corresponds to their ports `46158`, `46258`, `46358`, `46458`) interprets any occurence of its own index in `wrong` value as the flag to provide *wrong* `app_hash` to TM Core. This convention works well to illustrate Dispute case 1. First, let's try use `tx` to submit new `wrong` value:
+To simulate `app_hash` disputes in 4-node cluster the App uses special key `wrong`. Every node's App (indexed 1 to 4 which corresponds to their ports `46158`, `46258`, `46358`, `46458`) interprets any occurrence of its own index in `wrong` value as the flag to provide *wrong* `app_hash` to TM Core. This convention works well to illustrate Dispute case 1. First, let's try using `tx` to submit new `wrong` value:
 ```bash
 python query.py localhost:46157 tx wrong=34
 HEIGHT: 3
 INFO:   34
 OK
 ```
-This invocation return info `34` and `OK` status. At first glance everything is well, because `height`-th (3rd actually) block formed and `INFO` equal to new value `34` got. However this `INFO` should be considered as *tentantive* because despite successful 3rd block formation it's needed to wait for 4th block that should contain `app_hash` for 3rd block. Note that the source of `INFO` is just output of `DeliverTx` from single App and this output is neither merkelized nor signed by other nodes.
+This invocation return info `34` and `OK` status. At first glance, everything is well because `height`-th (the 3rd actually) block formed and `INFO` equal to new value `34` got. However this `INFO` should be considered as *tentative* because despite successful the 3rd block formation it's needed to wait for the 4th block that should contain `app_hash` for 3rd block. Note that the source of `INFO` is just output of `DeliverTx` from single App and this output is neither merkelized nor signed by other nodes.
 
 Now the blockchain has inconsistent state. Let's reset it via `node4-reset.sh`, wait some time for cluster initialization and use another command, `txverify`:
 ```bash
@@ -292,7 +292,7 @@ python query.py localhost:46157 txverify wrong=34
 HEIGHT: 3
 BAD   : Cannot verify tentative result '34'!
 ```
-`txverify` waits for `height+1`-th block before responding. This behavior is similar to `op` command logic. As before 3rd block formation is successful but it's not enough for `txverify`, it waits for 4th block. After some timeout it responds that this block is still not available, so tentative `34` value is not confirmed.
+`txverify` waits for `height+1`-th block before responding. This behavior is similar to `op` command logic. As before 3rd block formation is successful but it's not enough for `txverify`, it waits for 4th block. After some timeout, it responds that this block is still not available, so tentative `34` value is not confirmed.
 
 The App itself also monitors block creation. By checking it (`screen -x app1`) one can observe the following message in the App's log:
 ```
@@ -323,10 +323,10 @@ PROOF : a7ff...
 ```
 As expected, from the point of view of 'wrong' nodes everything is OK and tentative result is confirmed later by querying `wrong` key with merkelizing explicitly.
 
-This example shows that in presence of dishonest quorum Tendermint safety is violated and the blockchain is in falsified state. However for production system the App's Monitor can efficiently detect such problem and raise dispute to the Supervisor.
+This example shows that in presence of dishonest quorum Tendermint safety is violated and the blockchain is in a falsified state. However, for production system, the App's Monitor can efficiently detect such problem and raise the dispute to the Supervisor.
 
 ### Dispute case 3: honest quorum, some nodes dishonest or not available
-When quorum (2/3+ nodes of cluster) exists availability of other nodes does not influence cluster's safety or liveness. This demo app does not implement any special checks for existence of nodes absent or Byzantine during operation processing. Let's illustrate this using `wrong` key:
+When quorum (2/3+ nodes of the cluster) exists availability of other nodes does not influence cluster's safety or liveness. This demo app does not implement any special checks for the existence of nodes absent or Byzantine during operation processing. Let's illustrate this using `wrong` key:
 ```bash
 python query.py localhost:46157 txverify wrong=4
 HEIGHT: 3
