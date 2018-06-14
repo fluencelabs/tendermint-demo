@@ -258,7 +258,13 @@ Query processing on the App performed in the following way:
 4. The response containing value, Merkle proof and any other information are sent back to the local TM.
 
 ### Transactions and Merkle hashes
-Examples above demostrate usually a single transaction per block or empty blocks. Note that the App does not recalculate Merkle hashes during `DeliverTx` processing. In case of several transactions per block (when massive broadcasting of multiple transactions via `broadcast_tx_sync` or `broadcast_tx_async` RPCs performed), the App modifies key tree and marks changed paths by clearing Merkle hashes until ABCI `Commit` processing. On `Commit` the App recalculates Merkle hash along changed paths only. Finally the app returns the resulting root Merkle hash to Tendermint and this hash is stored as `app_hash` for corresponding height in the blockchain.
+Examples above demostrate usually a single transaction per block or empty blocks. Note that the App does not recalculate Merkle hashes during `DeliverTx` processing. In case of several transactions per block (when massive broadcasting of multiple transactions via `broadcast_tx_sync` or `broadcast_tx_async` RPCs performed), the App modifies key tree and marks changed paths by clearing Merkle hashes until ABCI `Commit` processing.
+
+![Keys after DeliverTx](keys_delivertx.png)
+
+On `Commit` the App recalculates Merkle hash along changed paths only. Finally the app returns the resulting root Merkle hash to Tendermint and this hash is stored as `app_hash` for corresponding height in the blockchain.
+
+![Keys after Commit](keys_commit.png)
 
 Note that described merkelized structure is just for demo purposes and not self-balanced, it remains efficient only until it the user transactions keep it relatively balanced. Something like [Patricia tree](https://github.com/ethereum/wiki/wiki/Patricia-Tree) should be more appropriate to achieve self-balancing.
 
