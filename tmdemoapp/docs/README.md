@@ -1,18 +1,18 @@
-# Tendermint Demo Key-Value Store on Scala
+# Tendermint Verifiable Computation and Storage Demo
 
-This is demo application modeling in-memory key-value distributed storage. It allows to store and modify key-value pairs, to request them and to make some operations with their values.
-![Key-values in cluster](cluster_key_value.png)
+This demo application shows how verifiable computations might be processed by a distributed cluster of nodes. It comes with a set of hardcoded operations that can be invoked by the client. Each requested operation is computed by every (ignoring failures or Byzantine cases) cluster node, and if any node disagrees with the computation outcome it can submit a dispute to an external Judge.
 
-A *distributed* property means that the app might be deployed across a cluster of several machines (nodes) and tolerate failures of some subset of those machines. At the same time, the client typically interacts with only a single node and the interaction protocol provides some guarantees of availability and consistency.
+Results of each computation are stored on the cluster nodes and can be later on retrieved by the client. The storage of the results is secured with Merkle proofs, so malicious nodes can't substitute them with bogus data.
+
+Because every computation is verified by the cluster nodes and computation outcomes are verified using Merkle proofs, the client normally doesn't have to interact with the entire cluster. Moreover, the client can interact with as little as a single node – this won't change safety properties. However, liveness might be compromised – for example if the node the client is interacting with is silently dropping incoming requests.
+
 ![Nodes in cluster](cluster_nodes.png)
 
 ## Motivation
-The application is intended to show a proof-of-concept of a system that provides the following properties:
-* Support of arbitrary deterministic operations (including simple reads/writes and complex aggregations, time-consuming calculations etc.)
+The application is a proof-of-concept of a system with the following properties:
+* Support of arbitrary deterministic operations: simple reads/writes as well as complex and time-consuming calculations
 * Having high throughput (1000 transaction per second) and low latency (1-2 seconds) of operations
 * Having every operation response verifiable (and thus trusted by the client)
-	* Either validated by storing all operation data in the blockchain (in this case such data signed by the majority of nodes)
-	* Or validated by providing Merkle proofs to the client (in this case the client has all required information to validate the response)
 * Ability to restore liveness and even safety after violating typical Byzantine quorum requirements (1/3 of failed nodes and more) – every node could rapidly detect problems in the blockchain or disagreement with the rest of nodes
 
 ## Architecture overview
@@ -30,12 +30,14 @@ The application is written in Scala 2.12. It is compatible with `Tendermint v0.1
 
 It models in-memory key-value string storage. Keys here are hierarchical, `/`-separated. This key hierarchy is *merkelized*, so every node stores Merkle hash of its associated value (if present) and its children.
 
-![Architecture](architecture.png)
+![Key-values in cluster](cluster_key_value.png)
 
 The entire application consists of the following components:
 * **Client** proxy (**Proxy**)
-* Node Tendermint (**TM** or **TM Core**) with important modules: Mempool, Consensus and Query
+* Node Tendermint (**TM** or **TM Core**) with notable modules: Mempool, Consensus and Query
 * Node ABCI Application itself (**App** or **ABCI App**)
+
+![Architecture](architecture.png)
 
 ### Operations
 Clients typically interact with Fluence via some local **Proxy**. This Proxy might be implemented in any language (because it communicates with TM Core by queries RPC endpoints), for example, Scala implementation of *some operation* may look like `def doSomeOperation(req: SomeRequest): SomeResponse`. This application uses simple (but powerful) Python `query.sh` script as Proxy to perform arbitrary operations, including:
