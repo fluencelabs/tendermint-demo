@@ -9,51 +9,58 @@ Because every computation is verified by the cluster nodes and computation outco
 ![Nodes in cluster](cluster_nodes.png)
 
 ## Motivation
-The application is a proof-of-concept of a system with the following properties:
-* Support of arbitrary deterministic operations: simple reads/writes as well as complex and time-consuming calculations
-* Having high throughput (1000 transaction per second) and low latency (1-2 seconds) of operations
-* Having every operation response verifiable (and thus trusted by the client)
-* Ability to restore liveness and even safety after violating typical Byzantine quorum requirements (1/3 of failed nodes and more) – every node could rapidly detect problems in the blockchain or disagreement with the rest of nodes
+The application is a proof-of-concept of a distributed system with the following properties:
+* Support of arbitrary deterministic operations: simple reads/writes as well as complex and time-consuming calculations.
+* High availability: tolerance to simultaneous failures or Byzantine actions of some subset of nodes.
+* High throughput (1000 transactions per second) and low latency (1-2 seconds) of operations.
+* Small blockchain finality time (several seconds).
+* Extremely low probability of consistency violation.
 
 ## Architecture overview
-The application use [Tendermint](https://github.com/tendermint/tendermint) platform which provides:
-* Distributed transaction cache
-* Blockchain (to store transactions persistently)
-* Consensus logic (to reach agreement about the order of transactions)
-* Peer-to-peer communication layer (between nodes)
+The entire application is distributed over set of machines having the following roles:
+* client-side **Proxy**, which originates the requests to the cluster
+* cluster **Node**, which serves the requests
+* the **Judge**, which is in charge of resolving complicated disagreements between nodes
 
-The application implements Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html) to follow Tendermint's architecture which decomposes the application logic into 2 main parts:
-* Distributed replicated transaction log (managed by Tendermint)
-* And state machine with business logic (manages by the application itself).
+The application uses blockchain approach to decompose the application logic into 2 main parts:
+* replicated transaction log
+* state machine with the domain-specific logic
+This decomposition allows to simplify development process. This modularization is not only logical but also phisical: transaction log and state machine run in separate processes, developed in different languages.
 
-The application is written in Scala 2.12. It is compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` for Java ABCI definitions.
+The application uses [Tendermint](https://github.com/tendermint/tendermint) platform which provides replicated transaction log components (**TM Core**), in particular:
+* distributed transaction cache (*Mempool*)
+* blockchain (to store transactions persistently)
+* Byzantine-resistant **consensus** logic (to reach agreement about the order of transactions)
+* peer-to-peer layer to communicate with another nodes
+* entry point for client requests
 
-It models in-memory key-value string storage. Keys here are hierarchical, `/`-separated. This key hierarchy is *merkelized*, so every node stores Merkle hash of its associated value (if present) and its children.
-
-![Key-values in cluster](cluster_key_value.png)
-
-The entire application consists of the following components:
-* **Client** proxy (**Proxy**)
-* Node Tendermint (**TM** or **TM Core**) with notable modules: Mempool, Consensus and Query
-* Node ABCI Application itself (**App** or **ABCI App**)
+To perform domain-specific logic the application uses its own **State machine** implementing Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html) to follow Tendermint's architecture. It is written in Scala 2.12, compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` for Java ABCI definitions.
 
 ![Architecture](architecture.png)
 
-### Operations
-Clients typically interact with Fluence via some local **Proxy**. This Proxy might be implemented in any language (because it communicates with TM Core by queries RPC endpoints), for example, Scala implementation of *some operation* may look like `def doSomeOperation(req: SomeRequest): SomeResponse`. This application uses simple (but powerful) Python `query.sh` script as Proxy to perform arbitrary operations, including:
-* Write transactions
-`tx a/b=10`
-* Key read queries
-`get a/b`
-* Arbitrary operations
-`op factorial:a/b`
-* Writing results of arbitrary operations
-`tx a/c=factorial:a/b`
+As the application is intended to run normally in presence of some failures, including Byzantine failures, the following principles used:
+* Every operation result is verifiable (and thus trusted by the client).
+* The application uses Tendermint's implementation of Byzantine fault-tolerant consensus algorithms to provide **safety** and **liveness** without external interference to the cluster – while more than 2/3 of cluster nodes are correct (*quorum* exists).
+* It can restore liveness and even safety after violating quorum requirements – every node could rapidly detect problems with the blockchain or disagreement with the rest of nodes and raise a dispute to the **Judge**.
 
-In terms of Tendermint architecture, these operations implemented in the following way:
-* All writes (simple and containing operations) are Tendermint *transactions*: a transaction changes the application state and stored to the blockchain (the correctness ensured by the consensus).
-* Reads are Tendermint *ABCI queries*: they do not change the application state, App just return requested value together with Merkle proof (the correctness ensured by Merkle proof).
-* Operations are combinations of writes and reads: to perform operation trustfully, Proxy first requests writing the result of operation to some key and then queries its value (the correctness ensured by both the consensus and Merkle proof).
+The **State machine** maintains its state using in-memory key-value string storage. Keys here are hierarchical, `/`-separated. This key tree is *merkelized*, so every key stores Merkle hash of its associated value (if present) and its children keys.
+
+![Key-values in cluster](cluster_key_value.png)
+
+### Operations
+Tendermint architecture suppose that the client typically interacts with the Application via the local **Proxy**. This application uses Python `query.py` script as client-side Proxy to request arbitrary operations to the cluster, including:
+* Simple `put` requests which specify a target key and a constant as its new value: `put a/b=10`.
+* Computational `put` requests which specify that a target key should be assigned to the result of some operation (with arguments) invocation: `put a/c=factorial:a/b`.
+* Requests to obtain a result of running an arbitrary operation: `run factorial:a/b`.
+* Requests to read the value of specified key: `get a/b`.
+
+`get` operations do not change the state of the application. They are implemented via Tendermint ABCI queries. As the result of a such query the **State machine** returns the value of the requested key together with the Merkle proof.
+
+`put` operations are *effectful* and change the application state explicitly. They are implemented via Tendermint **transactions** that combined into **blocks**. **TM Core** sends a transaction to the **State machine** and **State machine** applies this transaction to its state, typically changing the target key.
+
+`get` and `put` operations use different techniques to prove to the client that the operation is actually invoked and its result is correct. `get`s take advantage of Merkelized structure of the application state and provide Merkle proof of the result correctness. Any `put` invocation leads to adding the corresponding transaction to the blockchain, so observing this transaction in a correctly signed block means that there is a quorum in the cluster regarding this transaction's invocation.
+
+`run` operations are also *effectul*. They are implemented as combinations of `put`s and `get`s: to perform operation trustfully, **Proxy** first requests `put`-ting the result of operation to some key and then queries its value. Thus the correctness is ensured by both the consensus and Merkle proof.
 
 ## Installation and run
 For single-node run just launch the application:
@@ -75,7 +82,7 @@ In case Tendermint launched first, it would periodically try to connect the app 
 
 After successful launch the client can communicate with the application via sending RPC calls to TM Core on local `46678` port.
 
-### Cluster
+### Local cluster
 There are scripts that automate deployment and running 4 Application nodes on the local machine.
 
 ```bash

@@ -28,7 +28,7 @@ class ServerMonitor(handler: ABCIHandler) extends Runnable {
       val localHash = state.lastVerifiableAppHash.map(MerkleUtil.merkleHashToHex).getOrElse("")
 
       if (clusterHash != localHash) {
-        throw new IllegalStateException("Cluster quorum has unexpected app hash for previous block")
+        throw new IllegalStateException(s"Cluster quorum has unexpected app hash for previous block '$clusterHash' '$localHash'")
       }
 
       val timeWaiting = timeWaitingForEmptyBlock(state)
