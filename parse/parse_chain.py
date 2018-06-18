@@ -41,7 +41,8 @@ for height in range(minheight, maxheight + 1):
 					txsummary += "%30s " % txstr
 			if len(txs) > 5:
 				txsummary += "..."
-		print "%5s: %s %7d %7d" % (height, datetime.datetime.fromtimestamp(blocktime), numtxs, totaltxs), "0x" + app_hash[0:6], txsummary
+		app_hash_to_show = "0x" + app_hash[0:6] if app_hash != "" else "--------"
+		print "%5s: %s %7d %7d" % (height, datetime.datetime.fromtimestamp(blocktime), numtxs, totaltxs), app_hash_to_show, txsummary
 	else:
 		if height == lastnonempty + 2:
 			print "..."

@@ -66,7 +66,7 @@ class ABCIHandler(val serverIndex: Int) extends IDeliverTx with ICheckTx with IC
         }
       case unaryOpPattern(key, op, arg) =>
         op match {
-          case "get" => GetOperation(arg)(consensusRoot, key)
+          case "copy" => CopyOperation(arg)(consensusRoot, key)
           case "increment" => IncrementOperation(arg)(consensusRoot, key)
           case "factorial" => FactorialOperation(arg)(consensusRoot, key)
           case "hiersum" => HierarchicalSumOperation(arg)(consensusRoot, key)

@@ -11,9 +11,9 @@ case class SetValueOperation(value: String) extends Operation {
   }
 }
 
-case class GetOperation(arg: String) extends Operation {
+case class CopyOperation(arg: String) extends Operation {
   override def apply(root: Node, targetKey: String): Either[String, (Node, String)] = {
-    System.out.println(s"process get arg=$arg")
+    System.out.println(s"process copy arg=$arg")
     root.getValue(arg)
       .toRight("Wrong argument")
       .map(value => (root.add(targetKey, value), value))
