@@ -46,8 +46,8 @@ class ABCIHandler(val serverIndex: Int) extends IDeliverTx with ICheckTx with IC
   private var consensusRoot: Node = Node.emptyNode
   private var currentBlockHasTransactions: Boolean = false
 
-  private val binaryOpPattern: Regex = "(.+)=(.+):(.*),(.*)".r
-  private val unaryOpPattern: Regex = "(.+)=(.+):(.*)".r
+  private val binaryOpPattern: Regex = "(.+)=(.+)\\((.*),(.*)\\)".r
+  private val unaryOpPattern: Regex = "(.+)=(.+)\\((.*)\\)".r
   private val plainValuePattern: Regex = "(.+)=(.*)".r
 
   override def receivedDeliverTx(req: RequestDeliverTx): ResponseDeliverTx = {
@@ -101,7 +101,7 @@ class ABCIHandler(val serverIndex: Int) extends IDeliverTx with ICheckTx with IC
 
   private def appHash: Option[MerkleHash] = possiblyWrongAppHash
 
-  private def possiblyWrongAppHash: Option[MerkleHash] = correctAppHash.map(_ ++ Array(if (isByzantine) 1.toByte else 0.toByte))
+  private def possiblyWrongAppHash: Option[MerkleHash] = correctAppHash.map(x => if (isByzantine) { val y = x.clone(); y(0) = (0xFF ^ y(0)).toByte; y } else x)
 
   private def correctAppHash: Option[MerkleHash] = consensusRoot.merkleHash
 

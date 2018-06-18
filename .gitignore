@@ -102,3 +102,6 @@ ENV/
 
 # IntelliJ Idea
 .idea
+
+#macOS folder metadata
+.DS_Store

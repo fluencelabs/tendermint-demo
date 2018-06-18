@@ -50,19 +50,27 @@ The **State machine** maintains its state using in-memory key-value string stora
 ### Operations
 Tendermint architecture suppose that the client typically interacts with the Application via the local **Proxy**. This application uses Python `query.py` script as client-side Proxy to request arbitrary operations to the cluster, including:
 * Simple `put` requests which specify a target key and a constant as its new value: `put a/b=10`.
-* Computational `put` requests which specify that a target key should be assigned to the result of some operation (with arguments) invocation: `put a/c=factorial:a/b`.
-* Requests to obtain a result of running an arbitrary operation: `run factorial:a/b`.
+* Computational `put` requests which specify that a target key should be assigned to the result of some operation (with arguments) invocation: `put a/c=factorial(a/b)`.
+* Requests to obtain a result of running an arbitrary operation: `run factorial(a/b)`, `run sum(a/b,a/c)`.
 * Requests to read the value of specified key: `get a/b`.
 
 `get` operations do not change the state of the application. They are implemented via Tendermint ABCI queries. As the result of a such query the **State machine** returns the value of the requested key together with the Merkle proof.
 
 `put` operations are *effectful* and change the application state explicitly. They are implemented via Tendermint **transactions** that combined into **blocks**. **TM Core** sends a transaction to the **State machine** and **State machine** applies this transaction to its state, typically changing the target key.
 
-`get` and `put` operations use different techniques to prove to the client that the operation is actually invoked and its result is correct. `get`s take advantage of Merkelized structure of the application state and provide Merkle proof of the result correctness. Any `put` invocation leads to adding the corresponding transaction to the blockchain, so observing this transaction in a correctly signed block means that there is a quorum in the cluster regarding this transaction's invocation.
+`get` and `put` operations use different techniques to prove to the client that the operation is actually invoked and its result is correct. `get`-s take advantage of Merkelized structure of the application state and provide Merkle proof of the result correctness. Any `put` invocation leads to adding the corresponding transaction to the blockchain, so observing this transaction in a correctly signed block means that there is a quorum in the cluster regarding this transaction's invocation.
 
-`run` operations are also *effectul*. They are implemented as combinations of `put`s and `get`s: to perform operation trustfully, **Proxy** first requests `put`-ting the result of operation to some key and then queries its value. Thus the correctness is ensured by both the consensus and Merkle proof.
+`run` operations are also *effectul*. They are implemented as combinations of `put` and `get` requests: to perform operation trustfully, **Proxy** first requests `put`-ting the result of operation to some key and then queries its value. Thus the correctness is ensured by both the consensus and Merkle proof.
 
 ## Installation and run
+To run the App, a **Node** machine needs:
+* Scala 2.12 with `sbt`
+* [Tendermint](http://tendermint.readthedocs.io/en/master/install.html)
+* GNU `screen` (to run single-machine cluster)
+
+To query Nodes from client-side proxy, a client machine needs:
+* Python 2.7 with `sha3` package installed
+
 For single-node run just launch the application:
 ```bash
 sbt run
@@ -100,12 +108,12 @@ Other scripts allow to temporarily stop (`node4-stop.sh`), delete (`node4-delete
 
 ## Sending queries
 
-### Transactions
+### Writing operations
 Examples below use `localhost:46157` to query TM Core, for 4-node single-machine cluster requests to other endpoints (`46257`, `46357`, `46457`) behave the same way. For single-node launch (just one TM and one App) the default port is `46657`.
 
 To set a new key-value mapping use:
 ```bash
-python query.py localhost:46157 tx a/b=10
+python query.py localhost:46157 put a/b=10
 ...
 OK
 HEIGHT: 2
@@ -122,48 +130,48 @@ This command outputs last 50 non-empty blocks in the blockchain with a short sum
 curl -s 'localhost:46157/block?height=_' # replace _ with actual height number
 ```
 
-`get` transaction allows to copy a value from one key to another:
+`get` operation allows to copy a value from one key to another:
 ```bash
-python query.py localhost:46157 tx a/c=get:a/b
+python query.py localhost:46157 put "a/c=get(a/b)"
 ...
 INFO:   10
 ```
 
-Submitting an `increment` transaction increments the referenced key value and copies the old referenced key value to target key:
+Submitting an `increment` operation increments the referenced key value and copies the old referenced key value to target key:
 ```bash
-python query.py localhost:46157 tx a/d=increment:a/c
+python query.py localhost:46157 put "a/d=increment(a/c)"
 ...
 INFO:   10
 ```
 To prevent Tendermint from declining transaction that repeats one of the previously applied transactions, it's possible to put any characters after `###` at the end of transaction string, this part of string ignored:
 ```bash
-python query.py localhost:46157 tx a/d=increment:a/c###again
+python query.py localhost:46157 put "a/d=increment(a/c)###again"
 ...
 INFO:   11
 ```
 
-`sum` transaction sums the values of references keys and assigns the result to the target key:
+`sum` operation sums the values of references keys and assigns the result to the target key:
 ```bash
-python query.py localhost:46157 tx a/e=sum:a/c,a/d
+python query.py localhost:46157 put "a/e=sum(a/c,a/d)"
 ...
 INFO:   23
 ```
 
-`factorial` transaction calculates the factorial of the referenced key value:
+`factorial` operation calculates the factorial of the referenced key value:
 ```bash
-python query.py localhost:46157 tx a/f=factorial:a/b
+python query.py localhost:46157 put "a/f=factorial(a/b)"
 ...
 INFO:   3628800
 ```
 
-`hiersum` transaction calculates the sum of non-empty values for the referenced key and its descendants by hierarchy (all non-empty values should be integer):
+`hiersum` operation calculates the sum of non-empty values for the referenced key and its descendants by hierarchy (all non-empty values should be integer):
 ```bash
-python query.py localhost:46157 tx c/asum=hiersum:a
+python query.py localhost:46157 put "c/asum=hiersum(a)"
 ...
 INFO:   3628856
 ```
 
-Transactions are not applied in case of wrong arguments (non-integer values to `increment`, `sum`, `factorial` or wrong number of arguments). Transactions with a target key like `get`, `increment`, `sum`, `factorial` return the new value of the target key as `INFO`, but this value is *tentative* cannot be trusted if the serving node is not reliable. To verify the returned `INFO` one needs to `query` the target key explicitly.
+Operations are not applied in case of wrong arguments (non-integer values to `increment`, `sum`, `factorial` or wrong number of arguments). Operations with a target key like `get`, `increment`, `sum`, `factorial` return the new value of the target key as `INFO`, but this value is *tentative* and cannot be trusted if the serving node is not reliable. To verify the returned `INFO` one needs to `query` the target key explicitly.
 
 ### Simple queries
 `get` reads values from KVStore:
@@ -179,23 +187,23 @@ python query.py localhost:46657 ls a
 RESULT: e f b c d
 ```
 
-### Operations
-As mentioned above operation query is a combination of subsequent:
-* operation processing,
-* writing its result to a special key
-* and Merkelized read of this key.
+### Computations without target key
+As mentioned above, `run` query is a combination of subsequent:
+* operation processing
+* `put`-ting its result to a special key
+* Merkelized `get` of this key
 
 Below is the example (note that no target key specified here):
 ```bash
-python query.py localhost:46157 op factorial:a/b
+python query.py localhost:46157 run "factorial(a/b)"
 ...
 RESULT: 3628800
 ```
 
 ## Implementation details
 ### A. How Proxy sees operation processing
-Let's observe how operation processing looks like.
-1. Proxy gets `op` from the client.
+Let's observe how `run` request processing looks like.
+1. Proxy gets `run` from the client.
 2. Proxy decomposes operation into 2 interactions with cluster: transaction submit and response query.
 3. It takes some state key `opTarget` (it might use different such keys and choose one of them somehow).
 4. For transaction submit Proxy:
