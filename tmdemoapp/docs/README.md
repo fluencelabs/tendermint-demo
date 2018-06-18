@@ -25,14 +25,16 @@ The entire application is distributed over set of machines having the following 
 The application uses blockchain approach to decompose the application logic into 2 main parts:
 * replicated transaction log
 * state machine with the domain-specific logic
-This decomposition allows to simplify development process. This modularization is not only logical but also phisical: transaction log and state machine run in separate processes, developed in different languages.
+
+This decomposition allows to simplify development process. This modularization is not only logical but also physical: transaction log and state machine run in separate processes, implemented in different languages.
 
 The application uses [Tendermint](https://github.com/tendermint/tendermint) platform which provides replicated transaction log components (**TM Core**), in particular:
-* distributed transaction cache (*Mempool*)
+* distributed transaction cache (**Mempool**)
 * blockchain (to store transactions persistently)
-* Byzantine-resistant **consensus** logic (to reach agreement about the order of transactions)
+* Byzantine-resistant **Consensus** logic (to reach agreement about the order of transactions)
 * peer-to-peer layer to communicate with another nodes
-* entry point for client requests
+* RPC endpoint for client requests
+* **Query proxy** for making requests to the current state
 
 To perform domain-specific logic the application uses its own **State machine** implementing Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html) to follow Tendermint's architecture. It is written in Scala 2.12, compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` for Java ABCI definitions.
 
@@ -48,15 +50,15 @@ The **State machine** maintains its state using in-memory key-value string stora
 ![Key-values in cluster](cluster_key_value.png)
 
 ### Operations
-Tendermint architecture suppose that the client typically interacts with the Application via the local **Proxy**. This application uses Python `query.py` script as client-side Proxy to request arbitrary operations to the cluster, including:
+Tendermint architecture supposes that the client typically interacts with the Application via the local **Proxy**. This application uses Python `query.py` script as client-side Proxy to request arbitrary operations to the cluster, including:
 * Simple `put` requests which specify a target key and a constant as its new value: `put a/b=10`.
 * Computational `put` requests which specify that a target key should be assigned to the result of some operation (with arguments) invocation: `put a/c=factorial(a/b)`.
 * Requests to obtain a result of running an arbitrary operation: `run factorial(a/b)`, `run sum(a/b,a/c)`.
 * Requests to read the value of specified key: `get a/b`.
 
-`get` operations do not change the state of the application. They are implemented via Tendermint ABCI queries. As the result of a such query the **State machine** returns the value of the requested key together with the Merkle proof.
+`get` operations do not change the state of the application. They are implemented via Tendermint **ABCI queries**. As the result of a such query the **State machine** returns the value of the requested key together with the Merkle proof.
 
-`put` operations are *effectful* and change the application state explicitly. They are implemented via Tendermint **transactions** that combined into **blocks**. **TM Core** sends a transaction to the **State machine** and **State machine** applies this transaction to its state, typically changing the target key.
+`put` operations are *effectful* and change the application state explicitly. They are implemented via Tendermint **transactions** that combined into **blocks**. **TM Core** sends a transaction to the **State machine** and the **State machine** applies this transaction to its state, typically changing the target key.
 
 `get` and `put` operations use different techniques to prove to the client that the operation is actually invoked and its result is correct. `get`-s take advantage of Merkelized structure of the application state and provide Merkle proof of the result correctness. Any `put` invocation leads to adding the corresponding transaction to the blockchain, so observing this transaction in a correctly signed block means that there is a quorum in the cluster regarding this transaction's invocation.
 
@@ -238,7 +240,7 @@ Let's look how Tendermint on some node (say, N) treats transaction submit (step 
 	* Mempool invokes local App's `CheckTx` ABCI method. If App might reject the transaction, this information is sent to the client and no further action happens.
 	* The transaction gossip begins: the `opTx` starts spreading through other nodes.
 	* Also Mempool caches the transaction (in order to not accept repeated broadcasts of `opTx`).
-![Mempool processing](mempool.png)
+![Mempool processing](beh_mempool.png)
 3. Consensus processing:
 	* When the current TM *proposer* (this is some cluster node, not N in common case) is ready to create a new block, it grabs some amount of the earliest yet not committed transactions from local Mempool. If the transaction rate is intensive enough or even exceed TM/App throughput, it is possible that `opTx` may 'wait' during several block formation before it would be grabbed by Consensus.
 	* As soon as `opTx` and other transactions reach Consensus module, block election starts. Proposer creates block proposal (that describes all transactions in the current block) for current *round*, then other nodes make votes. In order to reach consensus for the block, the election should pass all consensus stages (propose, pre-vote, pre-commit) with the majority of TM votes (more that 2/3 of cluster nodes). If it doesn't work for some reason (votes timeout, Byzantive proposer), proposer changed and a new round starts (possibly with another transaction set for the current block).
@@ -246,7 +248,7 @@ Let's look how Tendermint on some node (say, N) treats transaction submit (step 
 	* When election successfully passed all stages each correct TM understands that consensus is reached. Then it invokes App's ABCI methods: `BeginBlock`, `DeliverTx` (for each transaction), `EndBlock`, `Commit`.
 	* An information from `DeliverTx` call then sent back to Proxy
 	* `app_hash` field from `Commit` call is stored by TM before making the next block.
-![Consensus processing](consensus.png)
+![Consensus processing](beh_consensus.png)
 5. The new, `height`-th, block metadata and transaction set now committed and becomes available via RPC's like `block`, `blockchain`, `status` (including call in Step A5). However the recently obtained from App block's app hash yet not stored in the blockchain (because an App hash for some block is stored in the blockchain metadata for the next block).
 6. Next block processing:
 	* Steps B2-B5 repeated for the next, `height+1`-th block. It may take some time, depending on new transactions availability and rate and commit timeout settings.
@@ -265,7 +267,7 @@ Note that to follow Tendermint architecture Step C2 and C3 behavior are purely d
 
 ### D. How Tendermint sees response query
 Response query initiated by Proxy on Step A7. Queries are processed by TM's Query module. Processing is very straightforward: it's just proxying the query to the local App.
-![Query processing](query.png)
+![Query processing](beh_query.png)
 
 ### E. How ABCI App sees response query
 Query processing on the App performed in the following way:
