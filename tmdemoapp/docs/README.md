@@ -111,10 +111,10 @@ Other scripts allow to temporarily stop (`node4-stop.sh`), delete (`node4-delete
 ## Sending queries
 Examples below use `localhost:46157` to query TM Core, for 4-node single-machine cluster requests to other endpoints (`46257`, `46357`, `46457`) behave the same way. For single-node launch (just one TM and one App) the default port is `46657`.
 
-### Writing operations
+### Writing operations (`put`)
 To set a new key-value mapping use:
 ```bash
-python query.py localhost:46157 put a/b=10
+> python query.py localhost:46157 put a/b=10
 HEIGHT: 1
 INFO:   10
 OK
@@ -123,68 +123,71 @@ This creates hierarchical key `a/b` (if necessary) and maps it to `10`. `HEIGHT`
 
 This script outputs the height value corresponding to the provided transaction. The height is available upon executing because `query.py` script uses `broadcast_tx_commit` RPC to send transactions to Tendermint. To query the latest transactions in the blockchain run:
 ```bash
-python parse_chain.py localhost:46157
+> python parse_chain.py localhost:46157
+height                 block time     txs acc.txs app_hash                            tx1
+    1: 2018-06-18 12:48:38.817396       1       1 --------                         a/b=10
+    2: 2018-06-18 12:48:40.248052       0       1 0x40507B
 ```
 This command outputs the latest blocks in the blockchain with a short summary about transactions. Here one can ensure that the provided transaction indeed included in the block with height from the response. This fact verifies that Tendermint majority (more than 2/3 of configured validator nodes) agreed on including this transaction in the mentioned block which certified by their signatures.
 
 `copy` operation allows to assign a value from one key to another:
 ```bash
-python query.py localhost:46157 put "a/c=copy(a/b)"
+> python query.py localhost:46157 put "a/c=copy(a/b)"
 ...
 INFO:   10
 ```
 
 Submitting an `increment` operation increments the referenced key value and copies the old referenced key value to target key:
 ```bash
-python query.py localhost:46157 put "a/d=increment(a/c)"
+> python query.py localhost:46157 put "a/d=increment(a/c)"
 ...
 INFO:   10
 ```
 To prevent Tendermint from declining transaction that repeats one of the previously applied transactions, it's possible to put any characters after `###` at the end of transaction string, this part of string ignored:
 ```bash
-python query.py localhost:46157 put "a/d=increment(a/c)###again"
+> python query.py localhost:46157 put "a/d=increment(a/c)###again"
 ...
 INFO:   11
 ```
 
 `sum` operation sums the values of references keys and assigns the result to the target key:
 ```bash
-python query.py localhost:46157 put "a/e=sum(a/c,a/d)"
+> python query.py localhost:46157 put "a/e=sum(a/c,a/d)"
 ...
 INFO:   23
 ```
 
 `factorial` operation calculates the factorial of the referenced key value:
 ```bash
-python query.py localhost:46157 put "a/f=factorial(a/b)"
+> python query.py localhost:46157 put "a/f=factorial(a/b)"
 ...
 INFO:   3628800
 ```
 
 `hiersum` operation calculates the sum of non-empty values for the referenced key and its descendants by hierarchy (all non-empty values should be integer):
 ```bash
-python query.py localhost:46157 put "c/asum=hiersum(a)"
+> python query.py localhost:46157 put "c/asum=hiersum(a)"
 ...
 INFO:   3628856
 ```
 
 Operations are not applied in case of wrong arguments (non-integer values to `increment`, `sum`, `factorial` or wrong number of arguments). Operations with a target key like `copy`, `increment`, `sum`, `factorial` return the new value of the target key as `INFO`, but this value is *tentative* and cannot be trusted if the serving node is not reliable. To verify the returned `INFO` one needs to `query` the target key explicitly.
 
-### Simple queries
+### Simple queries (`get`, `ls`)
 `get` reads value associated with the argument:
 ```bash
-python query.py localhost:46157 get a/e
+> python query.py localhost:46157 get a/e
 HEIGHT: 15
 HASH  : 75EC...
 PROOF : A7FF...
 RESULT: 23
 OK
 ```
-It also provides the information required to check the Merkle proof of the request: height, `app_hash` and proof itself. `OK` message at the end indicated the `RESULT` should be trusted.
+It also provides the information required to check the Merkle proof of the request: height, `app_hash` and proof itself. `OK` message at the end indicates that the `RESULT` is consistent with the `PROOF`.
 
-Note that the Tendermint blockchain stores `app_hash` from some block not in this block itself, but in the *next* block! For example. compare `HEIGHT` output (`15`) and `HASH` output (`75EC...`) from the previous query with `parse_chain` summary for 15-th and 16-th blocks:
+Note that the Tendermint blockchain stores `app_hash` from some block not in this block itself, but in the *next* block! For example, compare `HEIGHT` output (`15`) and `HASH` output (`75EC...`) from the previous query with `parse_chain` summary for 15-th and 16-th blocks:
 ```bash
-python parse_chain.py localhost:46157
+> python parse_chain.py localhost:46157
 height                 block time     txs acc.txs app_hash                            tx1
 ...   
    15: 2018-06-18 12:58:18.416200       1       7 0x4E452B              c/asum=hiersum(a)
@@ -193,13 +196,13 @@ height                 block time     txs acc.txs app_hash                      
 
 Another non-changing merkelized request, `ls`, can be used to obtain argument key's immediate children list:
 ```bash
-python query.py localhost:46157 ls a
+> python query.py localhost:46157 ls a
 ...
 RESULT: e f b c d
 OK
 ```
 
-### Computations without target key
+### Computations without target key (`run`)
 As mentioned above, `run` query is a combination of subsequent:
 * operation processing
 * `put`-ting its result to a special key
@@ -207,7 +210,7 @@ As mentioned above, `run` query is a combination of subsequent:
 
 Below is the example (note that no target key specified here):
 ```bash
-python query.py localhost:46157 run "factorial(a/b)"
+> python query.py localhost:46157 run "factorial(a/b)"
 HEIGHT: 17
 HASH  : D483...
 PROOF : A7FF...
@@ -215,7 +218,7 @@ RESULT: 3628800
 OK
 ```
 
-Note that `HEIGHT` is updated since the previous query because operation performed via Tendermint transaction. Also, Merkle proof details and the proof check status are provided, like for `get` queries.
+Note that `HEIGHT` has been updated since the previous query because operation performed via Tendermint transaction. Also, Merkle proof details and the proof check status are provided, like for `get` queries.
 
 ## Implementation details
 ### A. How Proxy sees operation processing
@@ -306,14 +309,14 @@ On `Commit` the App recalculates Merkle hash along changed paths only. Finally, 
 Note that described merkelized structure is just for demo purposes and not self-balanced, it remains efficient only until it the user transactions keep it relatively balanced. Something like [Patricia tree](https://github.com/ethereum/wiki/wiki/Patricia-Tree) should be more appropriate to achieve self-balancing.
 
 ## Dispute cases
-The examples below illustrate different situations when cluster's liveness and safety properties are violated. This can be caused not only by Byzantine behavior of nodes but also by some failures or bugs on particular cluster nodes. These examples show that such situations can be efficiently detected while at least one correct node exists. To fix such disputes in the production system, some *Supervisor* side should exist and correct nodes should be able to communicate with it.
+The examples below illustrate different situations when cluster's liveness and safety properties are violated. This can be caused not only by Byzantine behavior of nodes but also by some failures or bugs on particular cluster nodes. These examples show that such situations can be efficiently detected while at least one correct node exists. To fix such disputes in the production system, the **Judge** side should exist and correct nodes should be able to communicate with it.
 
 ### Dispute case 1: some nodes honest, some not, no quorum
 When the last block is `height`-th and there is no quorum (neither honest nor Byzantine) for `height+1`-th block's voting, liveness is violated and new blocks cannot be formed. Such situation might happen if the cluster cannot reach an agreement about next block. Even if TM Core works as expected, different Apps on different nodes might provide to local TM's different app hashes for `height`-th block.
 
 To simulate `app_hash` disputes in 4-node cluster the App uses special key `wrong`. Every node's App (indexed 1 to 4 which corresponds to their ports `46158`, `46258`, `46358`, `46458`) interprets any occurrence of its own index in `wrong` value as the flag to provide *wrong* `app_hash` to TM Core. This convention works well to illustrate Dispute case 1. First, let's try using `put` to submit new `wrong` value:
 ```bash
-python query.py localhost:46157 put wrong=34
+> python query.py localhost:46157 put wrong=34
 HEIGHT: 3
 INFO:   34
 OK
@@ -322,9 +325,12 @@ This invocation return info `34` and `OK` status. At first glance, everything is
 
 Now the blockchain has inconsistent state. Let's reset it via `node4-reset.sh`, wait some time for cluster initialization and use another command, checked writing operation `chput`:
 ```bash
-python query.py localhost:46157 chput wrong=34
+> python query.py localhost:46157 chput wrong=34
 HEIGHT: 3
-BAD   : Cannot verify tentative result '34'!
+HASH  : NOT_READY
+PROOF : NO_PROOF
+RESULT: EMPTY
+BAD   : Cannot verify tentative '34'! Height is not verifiable
 ```
 `chput` waits for `height+1`-th block before responding. This behavior is similar to `op` command logic. As before 3rd block formation is successful but it's not enough for `chput`, it waits for 4th block. After some timeout, it responds that this block is still not available, so tentative `34` value is not confirmed.
 
@@ -332,14 +338,17 @@ The App itself also monitors block creation. By checking it (`screen -x app1`) o
 ```
 NO CLUSTER QUORUM!
 ```
-This message produced by Monitor thread of the App that checks the following condition periodically: if 1 second elapsed from last non-empty block in the blockchain there must be an empty block after that block. When developing production system such criterion can also be used to detect such kind of dispute and signal the Supervisor that cluster needs to be fixed. Of course, the timeout value (default is 1 second) is configurable.
+This message produced by Monitor thread of the App that checks the following condition periodically: if 1 second elapsed from last non-empty block in the blockchain there must be an empty block after that block. When developing production system such criterion can also be used to detect such kind of dispute and signal the Judge that cluster needs to be fixed. Of course, the timeout value (default is 1 second) is configurable.
 
 ### Dispute case 2: dishonest quorum, minority of honest nodes
 This case can also be illustrated using `wrong` key:
 ```bash
-python query.py localhost:46157 chput wrong=234
+> python query.py localhost:46157 chput wrong=234
 HEIGHT: 3
-BAD   : Cannot verify tentative result '234'!
+HASH  : NOT_READY
+PROOF : NO_PROOF
+RESULT: EMPTY
+BAD   : Cannot verify tentative '234'! Height is not verifiable
 ```
 This message is the same as before but the situation is different actually. All nodes except Node 1 return wrong app hash to its TM's, but now those 'wrong' nodes have a quorum! Therefore the result is not confirmed only from the point of view of Node 1. By checking it's log (`screen -x app1`) another Monitor warning can be observed:
 ```
@@ -349,24 +358,26 @@ To achieve this detection the App's Monitor periodically requests its peer's TM 
 
 Let's reset the cluster and try again, submit the same transaction, but connect to another node:
 ```bash
-python query.py localhost:46257 chput wrong=234
+> python query.py localhost:46257 chput wrong=234
 HEIGHT: 3
-OK
+HASH  : F169...
+PROOF : A7FF..
 RESULT: 234
-PROOF : A7FF...
+BAD   : Proof is invalid
 ```
-As expected, from the point of view of 'wrong' nodes everything is OK and tentative result is confirmed later by querying `wrong` key with merkelizing explicitly.
+As expected, from the point of view of 'wrong' nodes everything is well and they try to respond providing their version of `app_hash`. However, Proxy is able to check the proof and discovers that it is not consistent with the result and wrong `app_hash`.
 
-This example shows that in presence of the dishonest quorum Tendermint safety is violated and the blockchain is in a falsified state. However, for a production system, the App's Monitor can efficiently detect such problem and raise the dispute to the Supervisor.
+This example shows that in presence of the dishonest quorum Tendermint safety is violated and the blockchain is in a falsified state. However, for a production system, the App's Monitor can efficiently detect such problem and raise the dispute to the Judge.
 
 ### Dispute case 3: honest quorum, some nodes dishonest or not available
 When quorum (2/3+ nodes of the cluster) exists availability of other nodes does not influence cluster's safety or liveness. This demo app does not implement any special checks for the existence of nodes absent or Byzantine during operation processing. Let's illustrate this using `wrong` key:
 ```bash
-python query.py localhost:46157 chput wrong=4
+> python query.py localhost:46157 chput wrong=4
 HEIGHT: 3
-OK
-RESULT: 4
+HASH  : 7B84...
 PROOF : A7FF...
+RESULT: 4
+OK
 ```
 
 It's supposed that if some node disagrees with the quorum, it needs to alert itself like for Dispute case 2, so cases 2 and 3 are symmetric in general.
