@@ -219,14 +219,77 @@ The output of `parse_chain.py` also shows that the Tendermint blockchain stores 
 ## Implementation details
 
 ### Operation processing in the cluster
-### Operation processing on the single node
+To initiate an operation the client Proxy needs to connect only a single node of the cluster in normal conditions.
+
+Reading `get` requests are processed on a single node entirely. The node State machine has all required information to process such query because the state with key-value tree and their proofs is fully replicated. The node TM Core also has everything to process `get` query because the blockchain is also fully replicated, contains all information not only about blocks but also the blocks signatures of other nodes and therefore can prove the client that the provided response cannot be inconsistent with those nodes signed the blockchain data.
+
+Writing `run` and `put` requests implemented via Tendermint transactions, so a cluster-wide interaction is required in order to:
+* TM Core spreads the transaction to other nodes
+* TM Cores reach consensus about including this transaction in a particular block
+* TM Cores request their local State machine to apply this transaction to the state
+* TM Cores obtain the `app_hash` from their local State machine
+
+### Transaction processing on the single node
+A single transaction processing primarily by 2 TM Core modules: **Mempool** and **Consensus**.
+
+A transaction is appeared in Mempool after one of TM Core [RPC](https://tendermint.readthedocs.io/projects/tools/en/master/specification/rpc.html) broadcast method invoked. Mempool then invokes the State machine `CheckTx` ABCI method. The State machine might reject the transaction if it is invalid, in this case the node does not need to connect other nodes. Otherwise the transaction starts spreading through other nodes.
+![Mempool processing](beh_mempool.png)
+
+The transaction remains some time in Mempool until **Consensus** module of the current TM **proposer** consumes it, includes to the newly created block (possibly together with other transactions) and initiates voting process. If the transaction rate is intensive enough or even exceed the node throughput, it is possible that the transaction may 'wait' during several block formation before it is eventually consumed by proposer's Consensus. *Note that the transaction broadcast and the block proposal are processed independently, it is possible but not required that the proposer is the node initially processed the broadcast.*
+
+In case of successful voting process, every TM Core starts block synchronization with its local State machine. On this phase the proposer and other nodes behave the same way. TM Core consecutively invokes the State machine's ABCI methods: `BeginBlock`, `DeliverTx` (for each transaction), `EndBlock`, and `Commit`. The State machine applies the block's transactions from `DeliverTx` sequence in their order, calculates the new `app_hash` and returns it to TM Core. At that moment the current block processing ends and the block becomes available outside (via RPC methods like `block` and `blockchain`). TM Core keeps `app_hash` and the information about voting process for including in the next block's metadata.
+
+### ABCI query processing on the single node
+ABCI queries that serves non-changing operations are described by the target key and the target `height`. They are initially processed by TM Core's **Query processor** which reroutes them to the State machine.
+
+The State machine processed the query by looking up for the target key in state corresponding to the `height`-th block. So the State machine maintains several Query states to be able to process different target heights.
+
+Note that the State machine might handle Mempool (`CheckTx`), Consensus (`DeliverTx`, `Commit`) and Query request pipelines concurrently. Also it maintains separates states for those pipelines, so none of Query states is affected by 'real-time' consensus state modified by applying new transaction. This design, together with making the target height explicit, allows to isolate different states and avoid race conditions between transactions and queries.
+
 ### Client-side Proxy implementation details
+To make a reading (`get`) request, the Proxy first gets the latest verifiable `height` and its `app_hash` from the blockchain RPC. This is the last but one `height` (because the latest one could never be verifiable, its `app_hash` is not available). Then a single ABCI Query call with `get` target key and the latest verifiable `height` is enough to get the required value together with Merkle proof and check that the value and the proof are consistent with `app_hash`.
+
+To make a writing (`put`) requests, the Proxy broadcasts the transaction to the cluster. Upon successful broadcast and insertion the transaction into some block, the Proxy knows the corresponding block `height`. This `height` becomes verifiable as soon as the next block is committed (as mentioned earlier normally this happens in a short time, by default 1 second at maximum). Then to verify successful `put` (and to get computation result in case of computational `put`), the Proxy just needs to make the ABCI Query with the target key and `height`, like for `get` request.
+
+`run` requests processing is very similar to `put` processing. The only difference that the Proxy generates a target key itself and use it to invoke the calculation via Tendermint transaction and then to read it via ABCI Query.
+
 ### Transactions and Merkle hashes
+The State machine does not recalculate Merkle hashes during `DeliverTx` processing. In case block consists of several transactions, the State machine modifies key tree and marks changed paths by clearing Merkle hashes until ABCI `Commit` processing.
 
-## Dispute cases
-The examples below illustrate different situations when cluster's liveness and safety properties are violated. This can be caused not only by Byzantine behavior of nodes but also by some failures or bugs on particular cluster nodes. These examples show that such situations can be efficiently detected while at least one correct node exists. To fix such disputes in the production system, the **Judge** side should exist and correct nodes should be able to communicate with it.
+![Keys after DeliverTx](keys_delivertx.png)
 
-### Dispute case 1: some nodes honest, some not, no quorum
+On `Commit` the State machine recalculates Merkle hash along changed paths only. Finally, the app returns the resulting root Merkle hash to TM Core and this hash is stored as `app_hash` for a corresponding block.
+
+![Keys after Commit](keys_commit.png)
+
+Note that described merkelized structure is just for demo purposes and not self-balanced, it remains efficient only until it the user transactions keep it relatively balanced. Something like [Patricia tree](https://github.com/ethereum/wiki/wiki/Patricia-Tree) should be more appropriate to achieve self-balancing.
+
+## Incorrect behavior of the cluster nodes
+As any viable distributed system, this Application is designed to handle some incorrect or even malicious behavior of the cluster nodes. To avoid the over-complication the following statements considered:
+* The client-side Proxy is correct.
+* The Judge is correct. This might look as a serious limitation but using some highly trusted source like Ethereum smart contract as the Judge in the production scenario might be a valid solution. This App implements the Judge as very simple program just for demo purposes.
+* The nodes' public keys are known to all cluster participants and the set of nodes in the cluster is immutable. A mutable node set might be handled too, but this is out of scope of this demo Application.
+* At least one cluster node is correct (both the node's TM Core and the State machine are correct). If the cluster size if large enough (20 and more nodes), the probability of such condition might be very high.
+* The correct nodes can communicate with the client and the Judge.
+* It is needless to consider situations when some nodes are partly correct (correct TM Core and incorrect State machine or vice versa).
+
+### A. Incorrect behavior cases which the client can detect and handle
+1. The node is not available or RPC request to the node is timed out. In this case the Proxy just retries request to other node, its possible that the rest of nodes is enough to have a quorum and keep the App alive.
+2. The TM Core blockchain RPCs (`block`, `blockchain`) return response with inconsistent information: incorrect block hashes, incorrect vote signatures or signatures that are not matched with known public keys. In this case the Proxy treats node as incorrect (possibly Byzantine) and retries request to other node.
+3. The TM Core ABCI Query returns wrong result/proof combination (inconsistent with the target height's `app_hash`). Like Case 2, in this case the Proxy treats node as incorrect (possibly Byzantine) and retries request to other node.
+4. The TM Core blockchain RPCs return stale data. The Proxy expects some maximum time between the blocks, so observing the larger time since the latest block is the reason to retry the request to other node. Note that the current node is not Byzantine for sure because it might experience connection problems with the rest of the cluster.
+
+### B. Incorrect behavior cases which the client can detect, but cannot handle
+After detecting those cases the Proxy is sure that the liveness propery is violated.
+1. The Proxy retried the request for cases A1-A4 for all cluster nodes and they all are failed.
+2. The cluster cannot commit `height+1`-th block while the Proxy waits for it to have `height`-th block verifiable. This is actually a subcase of the previous case, but it appears if the cluster recently committed `height`-th block during `put` or `run` processing. The failure to progress in this case probably means that the nodes have different `app_hash`-es for `height`-th block, so this is likely an evidence of the **dispute** in the cluster. The Proxy cannot resolve this case itself (simply because it's emphasized that the *entire* cluster cannot commit the required block, so no more nodes to request are left).
+
+### C. Dispute cases
+Dispute cases in general cannot be detected by the client, because the client is normally satisfied by the first successful response while retrying response to the cluster nodes. The external Judge should be available to the correct nodes to prevent such situations.
+
+Another, even more important, reason is that the dispute case might violate the cluster safety! When there is a *Byzantine quorum*, Byzantine nodes might provide to the client as wrong responses as they want, but the client keeps trusting the cluster because no Cases B and even Cases A evidence is observed. So the external Judge should also be able to replay the computations that caused the dispute.
+
+### Dispute case C1: some nodes honest, some not, no quorum
 When the last block is `height`-th and there is no quorum (neither honest nor Byzantine) for `height+1`-th block's voting, liveness is violated and new blocks cannot be formed. Such situation might happen if the cluster cannot reach an agreement about next block. Even if TM Core works as expected, different Apps on different nodes might provide to local TM's different app hashes for `height`-th block.
 
 To simulate `app_hash` disputes in 4-node cluster the App uses special key `wrong`. Every node's App (indexed 1 to 4 which corresponds to their ports `46158`, `46258`, `46358`, `46458`) interprets any occurrence of its own index in `wrong` value as the flag to provide *wrong* `app_hash` to TM Core. This convention works well to illustrate Dispute case 1. First, let's try using `fastput`, an unchecked alternative to `put` (it does not wait for the next block with the current block's `app_hash`) to submit new `wrong` value:
@@ -255,7 +318,7 @@ NO CLUSTER QUORUM!
 ```
 This message produced by Monitor thread of the App that checks the following condition periodically: if 1 second elapsed from last non-empty block in the blockchain there must be an empty block after that block. When developing production system such criterion can also be used to detect such kind of dispute and signal the Judge that cluster needs to be fixed. Of course, the timeout value (default is 1 second) is configurable.
 
-### Dispute case 2: dishonest quorum, minority of honest nodes
+### Dispute case C2: dishonest quorum, minority of honest nodes
 This case can also be illustrated using `wrong` key:
 ```bash
 > python query.py localhost:46157 put -v wrong=234
@@ -284,7 +347,7 @@ As expected, from the point of view of 'wrong' nodes everything is well and they
 
 This example shows that in presence of the dishonest quorum Tendermint safety is violated and the blockchain is in a falsified state. However, for a production system, the App's Monitor can efficiently detect such problem and raise the dispute to the Judge.
 
-### Dispute case 3: honest quorum, some nodes dishonest or not available
+### Dispute case C3: honest quorum, some nodes dishonest or not available
 When quorum (2/3+ nodes of the cluster) exists availability of other nodes does not influence cluster's safety or liveness. This demo app does not implement any special checks for the existence of nodes absent or Byzantine during operation processing. Let's illustrate this using `wrong` key:
 ```bash
 > python query.py localhost:46157 put -v wrong=4
