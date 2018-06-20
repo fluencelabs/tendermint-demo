@@ -257,9 +257,11 @@ To make a writing (`put`) requests, the Proxy broadcasts the transaction to the 
 
 ### Transactions and Merkle hashes
 The State machine does not recalculate Merkle hashes during `DeliverTx` processing. In case block consists of several transactions, the State machine modifies key tree and marks changed paths by clearing Merkle hashes until ABCI `Commit` processing.
+
 <img src="keys_delivertx.png" alt="Keys after DeliverTx" width="600px"/>
 
 On `Commit` the State machine recalculates Merkle hash along changed paths only. Finally, the app returns the resulting root Merkle hash to TM Core and this hash is stored as `app_hash` for a corresponding block.
+
 <img src="keys_commit.png" alt="Keys after Commit" width="600px"/>
 
 Note that described merkelized structure is just for demo purposes and not self-balanced, it remains efficient only until it the user transactions keep it relatively balanced. Something like [Patricia tree](https://github.com/ethereum/wiki/wiki/Patricia-Tree) should be more appropriate to achieve self-balancing.
