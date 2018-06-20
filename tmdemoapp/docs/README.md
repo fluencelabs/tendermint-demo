@@ -74,7 +74,7 @@ Tendermint Core orders incoming transactions, passes them to the App and stores 
 	* `app_hash` – the hash of the App state obtained from the State machine at the end of previous block
 	* information about a *voting* process for the previous block
 
-![Blocks](blocks.png =300x)
+<img src="blocks.png" alt="Blocks" width="300px"/>
 
 For every block, a single TM Core, the block **proposer**, is chosen. The proposer composes the transaction list, prepares the metadata and initiates the [voting process](http://tendermint.readthedocs.io/en/master/introduction.html#consensus-overview). Then other TM Cores make votes, accepting or declining the proposed block, and sign them. If enough amount of accepting votes exists (a **quorum**, more than 2/3 of TM Cores in the cluster), the block is considered committed. At this time every TM Core requests the local State machine to apply block transactions to the state (in their order) and asks the State machine for `app_hash`. If for some reasons a quorum is not reached (an invalid proposer, a proposal containing wrong hashes, timed out voting, etc.), the proposer is changed and a new attempt (**round**) of block creation (for the same `height` as the previous attempt) is started.
 
