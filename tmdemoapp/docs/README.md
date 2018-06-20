@@ -45,7 +45,7 @@ As the application is intended to run normally in presence of some failures, inc
 * The application uses Tendermint's implementation of Byzantine fault-tolerant consensus algorithms to provide **safety** and **liveness** without external interference to the cluster – while more than 2/3 of cluster nodes are correct (*quorum* exists).
 * It can restore liveness and even safety after violating quorum requirements – every node could rapidly detect problems with the blockchain or disagreement with the rest of nodes and raise a dispute to the **Judge**.
 
-The **State machine** maintains its state using in-memory key-value string storage. Keys here are hierarchical, `/`-separated. This key tree is *merkelized*, so every key stores Merkle hash of its associated value (if present) and its children keys.
+The **State machine** maintains its state using in-memory key-value string storage. Keys here are hierarchical, `/`-separated. This key tree is *merkelized*, so for every key the hash of its associated value (if present) and its children keys is also stored.
 
 ![Key-values in cluster](cluster_key_value.png)
 
@@ -56,7 +56,7 @@ Tendermint architecture supposes that the client typically interacts with the ap
 * Requests to obtain a result of running an arbitrary function with arguments: `run factorial(a/b)`, `run sum(a/b,a/c)`.
 * Computational `put` requests which specify that the result a of function invocation should be assigned to a target key: `put a/c=factorial(a/b)`.
 
-### Operations, transactions and state
+### Operations, transactions, and state
 `put` operations are *effectful* and change the application state explicitly. They are implemented via Tendermint **transactions**. **TM Core** sends a transaction to the **State machine** and the **State machine** applies this transaction to its state, typically changing the associated value of the target key.
 
 `get` operations do not change the state of the application. They are implemented via Tendermint **ABCI queries**. As the result of such query the **State machine** returns the value of the requested key.
@@ -64,33 +64,33 @@ Tendermint architecture supposes that the client typically interacts with the ap
 `run` operations are also *effectul* and their invocation changes the state. They are implemented as combinations of `put` and `get` requests: to perform such operation trustfully, **Proxy** first requests `put`-ting the result of the requested function to some key and then queries its value. 
 
 ### Blocks and transactions
-Tendermint Core orders incoming transactions, passes them to the App and stores them persistently. It also combines transactions into **blocks**. So the blockchain is the ordered sequence of blocks whereas the block contains the ordered sequence of transaction. Beside the transaction list, a block also has some [metadata](http://tendermint.readthedocs.io/en/master/specification/block-structure.html) that help to provide integrity and verifiability guarantees. Basically this metadata include:
+Tendermint Core orders incoming transactions, passes them to the App and stores them persistently. It also combines transactions into **blocks**. So the blockchain is the ordered sequence of blocks whereas the block contains the ordered sequence of transaction. Beside the transaction list, a block also has some [metadata](http://tendermint.readthedocs.io/en/master/specification/block-structure.html) that help to provide integrity and verifiability guarantees. Basically, this metadata include:
 * metadata related to the current block
 	* `height` – the index of this block in the blockchain
 	* the block creation time
 	* hash of the transaction list in the block
 	* hash of the previous block
 * metadata related to the previous block
-	* `app_hash` – the hash of the App state obtained from the State machine at the end of previous block
+	* `app_hash` – the hash of the App state obtained from the State machine at the end of the previous block
 	* information about a *voting* process for the previous block
 
-<img src="blocks.png" alt="Blocks" width="300px"/>
+<img src="blocks.png" alt="Blocks" width="600px"/>
 
 For every block, a single TM Core, the block **proposer**, is chosen. The proposer composes the transaction list, prepares the metadata and initiates the [voting process](http://tendermint.readthedocs.io/en/master/introduction.html#consensus-overview). Then other TM Cores make votes, accepting or declining the proposed block, and sign them. If enough amount of accepting votes exists (a **quorum**, more than 2/3 of TM Cores in the cluster), the block is considered committed. At this time every TM Core requests the local State machine to apply block transactions to the state (in their order) and asks the State machine for `app_hash`. If for some reasons a quorum is not reached (an invalid proposer, a proposal containing wrong hashes, timed out voting, etc.), the proposer is changed and a new attempt (**round**) of block creation (for the same `height` as the previous attempt) is started.
 
 Note that the information about a voting process and `app_hash` is not stored in the current block, because this part of metadata is not known to proposer at time of block creation and becomes available only after successful voting. That's why `app_hash` and voting information for the current block are stored in the next block (and become available outside TM Core only upon the next block commit).
 
 Blocks play the key role in the App (as well as in any application using the blockchain approach) because:
-* Grouping transactions in blocks dramatically improves the distributed system performance by reducing the storage and computational overhead per transaction: all metadata are associated with blocks and all nodes' hashes and signatures are applied to blocks. Transactions are just stored inside blocks.
+* Grouping transactions dramatically improves the distributed system performance by reducing the storage and computational overhead per transaction: all metadata are associated with blocks and all nodes' hashes and signatures are applied to blocks. Transactions are just stored inside blocks.
 * Block `height` is a primary identifier of a specific state version. All non-transactional queries to the State machine (like `get` operations) should refer to a particular `height`.
 * Blocks can be empty i. e. contain no transactions. By committing empty blocks, the TM Core might maintain the freshness of the state without creating new transactions and burdening the State machine.
 
-At the `height`-th block commit, only the presence and the order of its transactions is verified, but not the state upon their executing by the State machine. As the `height`-th block's `app_hash` only available when the `height+1`-th block committed, to verify some transaction from the `height`-th block or query to the `height`-th block the client needs to wait for `height+1`-th block. That's why TM Core always starts making the next block a short time after the prevous block' commit, this next block might be empty in case no transactions are available.
+At the `height`-th block commit, only the presence and the order of its transactions is verified, but not the state upon their executing by the State machine. As the `height`-th block's `app_hash` only available when the `height+1`-th block committed, to verify some transaction from the `height`-th block or query to the `height`-th block the client needs to wait for `height+1`-th block. That's why TM Core always starts making the next block a short time after the previous block' commit, this next block might be empty in case no transactions are available.
 
 ### Operations' verification
 Reading and writing operations use different techniques to prove to the client that the operation is actually invoked and its result is correct. 
 
-Reading `get` operation takes advantage of *merkelized* structure of the application state and provides Merkle proof of the result correctness. Client has all information to match the query result and the Merkle proof of this result with `app_hash` for queried state. The Merkle proof of a target key in the hierarchical key tree is the sequence of Merkle hashes of all keys and values along the way from the tree root to the target key.
+Reading `get` operation takes advantage of *merkelized* structure of the application state and provides Merkle proof of the result correctness. Client has all information to match the query result and the Merkle proof of this result with `app_hash` for the queried state. The Merkle proof of a target key in the hierarchical key tree is the sequence of Merkle hashes of all keys and values along the way from the tree root to the target key.
 
 Any `put` or `run` invocation leads to adding the corresponding transaction to the blockchain. The presence of this transaction in a correctly formed block (and also confirmed by the undisputed `app_hash` in the next block) means that there is a quorum in the cluster regarding this transaction. Later the operation's target key requested and its value together with Merkle proof verifies operation's correctness.
 
@@ -221,7 +221,7 @@ The output of `parse_chain.py` also shows that the Tendermint blockchain stores 
 ### Operation processing in the cluster
 To initiate an operation the client Proxy needs to connect only a single node of the cluster in normal conditions.
 
-Reading `get` requests are processed on a single node entirely. The node State machine has all required information to process such query because the state with key-value tree and their proofs is fully replicated. The node TM Core also has everything to process `get` query because the blockchain is also fully replicated, contains all information not only about blocks but also about the blocks signatures of other nodes and therefore can prove to the client that the provided response is consistent with those nodes signed the blockchain data.
+Reading `get` requests are processed on a single node entirely. The node State machine has all required information to process such query because the state with key-value tree and their proofs is fully replicated. The node TM Core also has everything to process `get` query because the blockchain is also fully replicated and contains all information not only about blocks but also about the blocks signatures of other nodes and therefore can prove to the client that the provided response is consistent with those nodes signed the blockchain data.
 
 Writing `run` and `put` requests implemented via Tendermint transactions, so a cluster-wide interaction is required in order to:
 * TM Core spreads the transaction to other nodes.
@@ -232,37 +232,35 @@ Writing `run` and `put` requests implemented via Tendermint transactions, so a c
 ### Transaction processing on the single node
 A single transaction is processing primarily by 2 TM Core modules: **Mempool** and **Consensus**.
 
-A transaction is appeared in Mempool after one of TM Core [RPC](https://tendermint.readthedocs.io/projects/tools/en/master/specification/rpc.html) `broadcast` method invoked. Mempool then invokes the State machine `CheckTx` ABCI method. The State machine might reject the transaction if it is invalid, in this case the node does not need to connect other nodes and the rejected transaction removed. Otherwise the transaction starts spreading through other nodes.
+A transaction appears in Mempool after one of TM Core [RPC](https://tendermint.readthedocs.io/projects/tools/en/master/specification/rpc.html) `broadcast` method invoked. Mempool then invokes the State machine `CheckTx` ABCI method. The State machine might reject the transaction if it is invalid, in this case, the node does not need to connect other nodes and the rejected transaction removed. Otherwise, the transaction starts spreading through other nodes.
 ![Mempool processing](beh_mempool.png)
 
 The transaction remains some time in Mempool until **Consensus** module of the current TM **proposer** consumes it, includes to the newly created block (possibly together with other transactions) and initiates the voting process. If the transaction rate is intensive enough or even exceed the node throughput, it is possible that the transaction may 'wait' during several block formation before it is eventually consumed by proposer's Consensus. *Note that the transaction broadcast and the block proposal are processed independently, it is possible but not required that the proposer is the node initially processed the broadcast.*
 
-In case of a successful voting process, every TM Core starts the block synchronization with its local State machine. On this phase the proposer and other nodes behave the same way. TM Core consecutively invokes the State machine's ABCI methods: `BeginBlock`, `DeliverTx` (for each transaction), `EndBlock`, and `Commit`. The State machine applies the block's transactions from `DeliverTx` sequence in their order, calculates the new `app_hash` and returns it to TM Core. At that moment the current block processing ends and the block becomes available outside (via RPC methods like `block` and `blockchain`). TM Core keeps `app_hash` and the information about a voting process for including in the next block's metadata.
+In case of a successful voting process, every TM Core starts the block synchronization with its local State machine. During this phase, the proposer and other nodes behave the same way. TM Core consecutively invokes the State machine's ABCI methods: `BeginBlock`, `DeliverTx` (for each transaction), `EndBlock`, and `Commit`. The State machine applies the block's transactions from `DeliverTx` sequence in their order, calculates the new `app_hash` and returns it to TM Core. At that moment the current block processing ends and the block becomes available outside (via RPC methods like `block` and `blockchain`). TM Core keeps `app_hash` and the information about a voting process for including in the next block's metadata.
 ![Consensus processing](beh_consensus.png)
 
 ### ABCI query processing on the single node
-ABCI queries that serves non-changing operations are described by the target key and the target `height`. They are initially processed by TM Core's **Query processor** which reroutes them to the State machine.
+ABCI queries that serve non-changing operations are described by the target key and the target `height`. They are initially processed by TM Core's **Query processor** which reroutes them to the State machine.
 
-The State machine processed the query by looking up for the target key in state corresponding to the `height`-th block. So the State machine maintains several Query states to be able to process different target heights.
+The State machine processed the query by looking up for the target key in a state corresponding to the `height`-th block. So the State machine maintains several Query states to be able to process different target heights.
 ![Query processing](beh_query.png)
 
-Note that the State machine might handle Mempool (`CheckTx`), Consensus (`DeliverTx`, `Commit`) and Query request pipelines concurrently. Also it maintains separate states for those pipelines, so none of *Query* states might be affected by 'real-time' *Consensus* state possibly modified by applying new transaction at the same time. This design, together with making the target height explicit, allows to isolate different states and avoid race conditions between transactions and queries.
+Note that the State machine might handle Mempool (`CheckTx`), Consensus (`DeliverTx`, `Commit`) and Query request pipelines concurrently. Also, it maintains separate states for those pipelines, so none of the *Query* states might be affected by 'real-time' *Consensus* state possibly modified by applying new transaction at the same time. This design, together with making the target height explicit, allows to isolate different states and avoid race conditions between transactions and queries.
 
 ### Client-side Proxy implementation details
 To make a reading (`get`) request, the Proxy first gets the latest verifiable `height` and its `app_hash` from the blockchain RPC. This is the last but one `height` (because the latest one could never be verifiable, its `app_hash` is not available). Then a single ABCI Query call with the `get` target key and the latest verifiable `height` is enough to get the required value together with Merkle proof and check that the value and the proof are consistent with `app_hash`.
 
-To make a writing (`put`) requests, the Proxy broadcasts the transaction to the cluster. Upon successful broadcast and insertion the transaction into some block, the Proxy knows the corresponding block `height`. This `height` becomes verifiable as soon as the next block is committed (as mentioned earlier normally this happens in a short time, by default 1 second at most). Then to verify successful `put` (and to get computation result in case of computational `put`), the Proxy just needs to make the ABCI Query with the target key and `height`, like for the `get` request in the previous paragrash.
+To make a writing (`put`) requests, the Proxy broadcasts the transaction to the cluster. Upon successful broadcast and insertion of the transaction into some block, the Proxy knows the corresponding block `height`. This `height` becomes verifiable as soon as the next block is committed (as mentioned earlier normally this happens in a short time, by default 1 second at most). Then to verify successful `put` (and to get computation result in case of the computational `put`), the Proxy just needs to make the ABCI Query with the target key and `height`, like for the `get` request in the previous paragraph.
 
 `run` requests processing is very similar to `put` processing. The only difference that the Proxy generates a 'hidden' target key and use it to invoke the calculation via Tendermint transaction and then to read it via ABCI Query.
 
 ### Transactions and Merkle hashes
 The State machine does not recalculate Merkle hashes during `DeliverTx` processing. In case block consists of several transactions, the State machine modifies key tree and marks changed paths by clearing Merkle hashes until ABCI `Commit` processing.
-
-![Keys after DeliverTx](keys_delivertx.png)
+<img src="keys_delivertx.png" alt="Keys after DeliverTx" width="600px"/>
 
 On `Commit` the State machine recalculates Merkle hash along changed paths only. Finally, the app returns the resulting root Merkle hash to TM Core and this hash is stored as `app_hash` for a corresponding block.
-
-![Keys after Commit](keys_commit.png)
+<img src="keys_commit.png" alt="Keys after Commit" width="600px"/>
 
 Note that described merkelized structure is just for demo purposes and not self-balanced, it remains efficient only until it the user transactions keep it relatively balanced. Something like [Patricia tree](https://github.com/ethereum/wiki/wiki/Patricia-Tree) should be more appropriate to achieve self-balancing.
 
@@ -271,16 +269,16 @@ As any viable distributed system, this Application is designed to handle incorre
 * The client-side Proxy is correct.
 * The Judge is correct. This might look as a serious limitation *but using some highly trusted source like Ethereum smart contract as the Judge in the production scenario might be a valid solution.* This App implements the Judge as a very simple program just for demo purposes.
 * The nodes' public keys are known to all cluster participants.
-* The set of nodes in the cluster is immutable. A mutable node set might be handled too, but this is out of scope of this demo Application.
+* The set of nodes in the cluster is immutable. A mutable node set might be handled too, but this is out of the scope of this demo Application.
 * At least one cluster node is correct (both the node's TM Core and the State machine are correct). *If the cluster size if large enough (20 and more nodes), the probability of such condition might be very high.*
 * The correct nodes can communicate with the client and the Judge.
 * It is needless to consider situations when some nodes are partly correct (correct TM Core and incorrect State machine or vice versa).
 
 ### A. Incorrect behavior cases which the client can detect and handle
-1. The node is not available or RPC request to the node is timed out. In this case the Proxy just retries request to other node, its possible that the rest of nodes is enough to have a quorum and keep the App alive.
-2. The TM Core blockchain RPCs (`block`, `blockchain`) return response with inconsistent information: falsified transactions in the blocks, incorrect block hashes, incorrect vote signatures or signatures that are not matched with known public keys. In this case the Proxy treats the node as incorrect (possibly Byzantine) and retries request to other node.
-3. The TM Core ABCI Query returns wrong result/proof combination (inconsistent with the target height's `app_hash`). Like Case 2, in this case the Proxy treats the node as incorrect (possibly Byzantine) and retries request to other node.
-4. The TM Core blockchain RPCs return stale data. The Proxy expects some maximum time between the blocks, so observing the larger time since the latest block is the reason to retry the request to other node. Note that the current node cannot be considered Byzantine for sure because it might experience connection problems with the rest of the cluster.
+1. The node is not available or RPC request to the node is timed out. In this case the Proxy just retries request to another node, its possible that the rest of nodes is enough to have a quorum and keep the App alive.
+2. The TM Core blockchain RPCs (`block`, `blockchain`) return response with inconsistent information: falsified transactions in the blocks, incorrect block hashes, incorrect vote signatures or signatures that are not matched with known public keys. In this case, the Proxy treats the node as incorrect (possibly Byzantine) and retries request to another node.
+3. The TM Core ABCI Query returns wrong result/proof combination (inconsistent with the target height's `app_hash`). Like for Case 2, in this case, the Proxy treats the node as incorrect (possibly Byzantine) and retries request to another node.
+4. The TM Core blockchain RPCs return stale data. The Proxy expects some maximum time between the blocks, so observing the larger time since the latest block is the reason to retry the request to another node. Note that the current node cannot be considered Byzantine for sure because it might experience connection problems with the rest of the cluster.
 
 ### B. Incorrect behavior cases which the client can detect, but cannot handle
 After detecting those cases the Proxy is sure that the cluster **liveness** is violated. An external interference is required to restore it.
@@ -288,12 +286,12 @@ After detecting those cases the Proxy is sure that the cluster **liveness** is v
 2. The cluster cannot commit `height+1`-th block while the Proxy waits for it to have `height`-th block verifiable. This is actually a subcase of the previous case, but it appears if the cluster recently committed `height`-th block during `put` or `run` processing. The failure to progress in this case probably means that the nodes have different `app_hash`-es for `height`-th block, so this is likely an evidence of the **dispute** in the cluster.
 
 ### C. Dispute cases
-Dispute cases in general cannot be detected by the client, because the client is normally satisfied by the first successful response while retrying response to the cluster nodes. The external Judge is available to the correct nodes in order to prevent such situations (instead of multicasting the client requests to all cluster nodes and comparing the responses).
+Dispute cases, in general, cannot be detected by the client, because the client is normally satisfied by the first successful response while retrying response to the cluster nodes. The external Judge is available to the correct nodes in order to prevent such situations (instead of multicasting the client requests to all cluster nodes and comparing the responses).
 
 Another, even more important, reason is that the dispute case might violate the cluster **safety**! When there is a *Byzantine quorum*, Byzantine nodes might provide to the client as wrong responses as they want, but the client keeps trusting the cluster because no Cases B and even Cases A evidence is observed. So the external Judge should also be able to replay the computations that caused the dispute.
 
 ### Dispute case C1: some nodes honest, some not, no quorum
-When the last block is `height`-th and there is no quorum (neither honest nor Byzantine) for `height+1`-th block's voting, liveness is violated and new blocks cannot be formed. Such situation might happen if the cluster cannot reach an agreement about next block. Even if TM Core works as expected, different State machines on different nodes might provide to local TM Coress different app hashes for `height`-th block. As already said, Case B2 is usually an aftermath of this case.
+When the last block is `height`-th and there is no quorum (neither honest nor Byzantine) for `height+1`-th block's voting, liveness is violated and new blocks cannot be formed. Such situation might happen if the cluster cannot reach an agreement about next block. Even if TM Core works as expected, different State machines on different nodes might provide to local TM Cores different app hashes for `height`-th block. As already said, Case B2 is usually an aftermath of this case.
 
 To simulate `app_hash` disputes in 4-node cluster the App uses special key `wrong`. Every node's App (indexed 1 to 4 which corresponds to their ports `46158`, `46258`, `46358`, `46458`) interprets any occurrence of its own index in `wrong` value as the flag to provide *wrong* `app_hash` to TM Core. This convention works well to illustrate Dispute case C1. First, let's try using `fastput`, an unchecked alternative to `put` (it does not wait for the next block with the current block's `app_hash`) to submit new `wrong` value:
 ```bash
