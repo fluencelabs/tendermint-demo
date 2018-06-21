@@ -33,9 +33,9 @@ Because every computation is verified by the cluster nodes and computation outco
 	* [A. Cases which the client can detect and handle](#a-cases-which-the-client-can-detect-and-handle)
 	* [B. Cases which the client can detect, but cannot handle](#b-cases-which-the-client-can-detect-but-cannot-handle)
 	* [C. Dispute cases](#c-dispute-cases)
-		* [C1: some nodes honest, some not, no quorum](#dispute-case-c1-some-nodes-honest-some-not-no-quorum)
-		* [C2: dishonest quorum, minority of honest nodes](#dispute-case-c2-dishonest-quorum-minority-of-honest-nodes)
-		* [C3: honest quorum, some nodes dishonest or not available](#dispute-case-c3-honest-quorum-some-nodes-dishonest-or-not-available)
+		* [C1. Some nodes honest, some not, no quorum](#dispute-case-c1-some-nodes-honest-some-not-no-quorum)
+		* [C2. Dishonest quorum, minority of honest nodes](#dispute-case-c2-dishonest-quorum-minority-of-honest-nodes)
+		* [C3. Honest quorum, some nodes dishonest or not available](#dispute-case-c3-honest-quorum-some-nodes-dishonest-or-not-available)
 
 ## Motivation
 The application is a proof-of-concept of a decentralized system with the following properties:
@@ -79,7 +79,7 @@ To execute domain-specific logic the application uses its own **State machine** 
 
 ### State machine and computations correctness
 
-Each node carries a state which is updated using transactions furnished through the consensus engine. Assuming that more than 2/3 of the cluster nodes are honest, the BFT consensus engine guarantees _correctness_ of state transitions. In other words, unless 1/3 or more of the cluster nodes are Byzantine there is no way the cluster will allow an incorrect transition. 
+Each node carries a state which is updated using transactions furnished through the consensus engine. Assuming that more than 2/3 of the cluster nodes are honest, the BFT consensus engine guarantees *correctness* of state transitions. In other words, unless 1/3 or more of the cluster nodes are Byzantine there is no way the cluster will allow an incorrect transition. 
 
 If every transition made since the genesis was correct, we can expect that the state itself is correct too. Results obtained by querying such a state should be correct as well (assuming a state is a verifiable data structure).
 
@@ -87,7 +87,7 @@ However, it's not possible to expect that a cluster can't be taken over by Byzan
 
 This a pretty high probability, and if we want to keep the cluster size reasonably low to have desired cost efficiency another trick should work. We can allow any node in the cluster to escalate to the external trusted **Judge** if it disagrees with state transitions made by the rest of the nodes. In this case, all nodes in the cluster need to be Byzantine to keep the **Judge** uninformed. For the considered case the probability of such event is `~1E-7`.
 
-This way it's possible to improve the probability of noticing an incorrect behavior almost by six orders of magnitude. However, there is a significant difference between the two approaches. Once the cluster has reached consensus, the state transition is made and potentially incorrect results can be immediately used by the client. An escalation mechanism allows to notice an incorrect cluster behavior only _post factum_.
+This way it's possible to improve the probability of noticing an incorrect behavior almost by six orders of magnitude. However, there is a significant difference between the two approaches. Once the cluster has reached consensus, the state transition is made and potentially incorrect results can be immediately used by the client. An escalation mechanism allows to notice an incorrect cluster behavior only *post factum*.
 
 To compensate, a **Judge** can penalize malicious nodes by forfeiting their security deposits for the benefit of the client. However, even in this case a client can't be a mission critical application where no amount of compensation would offset the damage made.
 
@@ -372,35 +372,31 @@ This message produced by Monitor thread of the App that checks the following con
 #### Dispute case C2: dishonest quorum, minority of honest nodes
 This case can also be illustrated using `wrong` key:
 ```bash
-> python query.py localhost:46157 put -v wrong=234
+> python query.py localhost:46157 put -v wrong=123
 HEIGHT: 3
-HASH  : NOT_READY
-PROOF : NO_PROOF
-RESULT: EMPTY
-BAD   : Cannot verify tentative '234'! Height is not verifiable
+HASH  : 3E5B81D6C436A5319577637A005FDA99EAA632C360ACA23AE9BB3BD3766CFE02
+PROOF : A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A 1AACEE49E178FF7836873CB0D520C5C7D82B772D28997A0EE51A837A5AA5683C 672896E0A9F15E323B6D2166A520701F8423198E0AB3D33415F7E2A844D18454, 10A1E4BF410C6BFD3455EF467700B24842ABE6F9ED6D24C816741F43A8FA8D58
+RESULT: wrong123
+OK
 ```
-This message is the same as before but the situation is different actually. All nodes except Node 1 obtain wrong app hash, but now those 'wrong' nodes have a quorum! Therefore the result is not confirmed only from the point of view of Node 1. By checking it's log (`screen -x app1`) another Monitor warning can be observed:
+
+The 'wrong' nodes (1st, 2nd, and 3rd) have a quorum (dispite the 4th disagrees with them) and provide their version of state and corresponding `app_hash`. The Client validates the blockchain information and provided response and treats it correct. From the Client's point of view it is impossible in general case to discriminate the correct response and falsified response in presence of a Byzantine quorum.
+
+This example is pretty artificial because the trivial comparison of the target value `123` with the result `wrong123` might be done. However, in case of non-trivial operation the client is unable to reproduce its computation and cannot detect the increrrect response.
+
+By checking the only correct 4th Node log (`screen -x app4`) another Monitor warning can be observed:
 ```
 DISAGREEMENT WITH CLUSTER QUORUM!
 ```
-To achieve this detection the App's Monitor periodically requests its peer's TM Core RPC's for the next block and compares its own `app_hash` with their `app_hash`-es.
+To achieve this detection the App's Monitor periodically requests its peer's TM Core RPC's for the next block and compares its own `app_hash` with their `app_hash`-es. In case of disagreement the Monitor immediately raise the dispute to the Judge.
 
-Let's reset the cluster and try again, submit the same transaction, but connect to another node:
-```bash
-> python query.py localhost:46257 put -v wrong=234
-HEIGHT: 3
-HASH  : CE773BBAD425FE7C7CA54E890B4E02759564F8E9AB1B82ADCF42437122EDC7CD
-PROOF : A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A 1AACEE49E178FF7836873CB0D520C5C7D82B772D28997A0EE51A837A5AA5683C B8366C6DD77D18CCC60B6824C17C9C0B95063213E32AC14D82D2BEE6981EDB87, 3B52405688C482C40A924C5CFC3357BEA000FA2FC149BFCC8020A18EA02BDD92
-RESULT: wrong234
-OK
-```
 #### Dispute case C3: honest quorum, some nodes dishonest or not available
-When quorum (2/3+ nodes of the cluster) exists availability of other nodes does not influence cluster's safety or liveness. This demo app does not implement any special checks for the existence of nodes absent or Byzantine during operation processing. Let's illustrate this using `wrong` key:
+When a quorum (2/3+ nodes of the cluster) exists, the availability of other nodes does not influence cluster's safety or liveness. This demo app does not implement any special checks for the existence of nodes absent or Byzantine during operation processing. Let's illustrate this using `wrong` key:
 ```bash
 > python query.py localhost:46157 put -v wrong=4
 HEIGHT: 3
-HASH  : 7B84...
-PROOF : A7FF...
+HASH  : 7B840A448231110FC3746EE06C0053E6EADE213189BDFDB902E7FBA6A486643B
+PROOF : A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A 1AACEE49E178FF7836873CB0D520C5C7D82B772D28997A0EE51A837A5AA5683C B103DC8A5244FD6548F7C0DE617EE66D25F79007A993BC15C6EA11D8390E6279, B410677B84ED73FAC43FCF1ABD933151DD417D932A0EF9B0260ECF8B7B72ECB9
 RESULT: 4
 OK
 ```
