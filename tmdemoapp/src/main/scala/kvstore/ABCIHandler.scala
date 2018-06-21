@@ -58,7 +58,7 @@ class ABCIHandler(val serverIndex: Int) extends IDeliverTx with ICheckTx with IC
     val txPayload = tx.split("###")(0)
 
     val result = txPayload match {
-      case resp@"BAD_DELIVER" => Left(resp)
+      case response@"BAD_DELIVER" => Left(response)
       case binaryOpPattern(key, op, arg1, arg2) =>
         op match {
           case "sum" => SumOperation(arg1, arg2)(consensusRoot, key)
@@ -72,7 +72,11 @@ class ABCIHandler(val serverIndex: Int) extends IDeliverTx with ICheckTx with IC
           case "hiersum" => HierarchicalSumOperation(arg)(consensusRoot, key)
           case _ => Left("Unknown unary op")
         }
-      case plainValuePattern(key, value) => SetValueOperation(value)(consensusRoot, key)
+      case plainValuePattern(key, value) =>
+        if (key == "wrong" && value.contains(serverIndex.toString))
+          SetValueOperation("wrong" + value)(consensusRoot, key)
+        else
+          SetValueOperation(value)(consensusRoot, key)
       case key => SetValueOperation(key)(consensusRoot, key)
     }
 
@@ -87,26 +91,17 @@ class ABCIHandler(val serverIndex: Int) extends IDeliverTx with ICheckTx with IC
   override def requestCommit(requestCommit: RequestCommit): ResponseCommit = {
     consensusRoot = consensusRoot.merkelize()
 
-    val buffer = ByteBuffer.wrap(appHash.get)
+    val buffer = ByteBuffer.wrap(consensusRoot.merkleHash.get)
 
     storage.add(consensusRoot)
     mempoolRoot = consensusRoot
 
-    state = BlockchainState(storage.size, appHash, state.lastAppHash, currentBlockHasTransactions, System.currentTimeMillis())
+    state = BlockchainState(storage.size, consensusRoot.merkleHash, state.lastAppHash, currentBlockHasTransactions, System.currentTimeMillis())
     currentBlockHasTransactions = false
     System.out.println(s"Commit: height=${state.lastCommittedHeight} hash=${state.lastAppHash.map(MerkleUtil.merkleHashToHex).getOrElse("EMPTY")}")
 
     ResponseCommit.newBuilder.setData(ByteString.copyFrom(buffer)).build
   }
-
-  private def appHash: Option[MerkleHash] = possiblyWrongAppHash
-
-  private def possiblyWrongAppHash: Option[MerkleHash] = correctAppHash.map(x => if (isByzantine) { val y = x.clone(); y(0) = (0xFF ^ y(0)).toByte; y } else x)
-
-  private def correctAppHash: Option[MerkleHash] = consensusRoot.merkleHash
-
-  // This would return true since `wrong` key maps to any string that contains `serverIndex`
-  private def isByzantine: Boolean = consensusRoot.getValue("wrong").exists(_.contains(serverIndex.toString))
 
 
   override def requestQuery(req: RequestQuery): ResponseQuery = {

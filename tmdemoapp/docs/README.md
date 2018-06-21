@@ -32,18 +32,18 @@ Because every computation is verified by the cluster nodes and computation outco
 	* [A. Cases which the client can detect and handle](#a-cases-which-the-client-can-detect-and-handle)
 	* [B. Cases which the client can detect, but cannot handle](#b-cases-which-the-client-can-detect-but-cannot-handle)
 	* [C. Dispute cases](#c-dispute-cases)
-	* [Case C1: some nodes honest, some not, no quorum](#dispute-case-c1-some-nodes-honest-some-not-no-quorum)
-	* [Case C2: dishonest quorum, minority of honest nodes](#dispute-case-c2-dishonest-quorum-minority-of-honest-nodes)
-	* [Case C3: honest quorum, some nodes dishonest or not available](#dispute-case-c3-honest-quorum-some-nodes-dishonest-or-not-available)
+		* [C1: some nodes honest, some not, no quorum](#dispute-case-c1-some-nodes-honest-some-not-no-quorum)
+		* [C2: dishonest quorum, minority of honest nodes](#dispute-case-c2-dishonest-quorum-minority-of-honest-nodes)
+		* [C3: honest quorum, some nodes dishonest or not available](#dispute-case-c3-honest-quorum-some-nodes-dishonest-or-not-available)
 
 ## Motivation
 The application is a proof-of-concept of a decentralized system with the following properties:
 * Support of arbitrary deterministic operations: simple reads or writes as well as complex computations.
+* Total safety of operations when more than 2/3 of the cluster is non-Byzantine.
+* Ability to notice and dispute an incorrect behavior when there is at least one non-Byzantine node.
 * High availability: tolerance to simultaneous failures or Byzantine actions of some subset of nodes.
 * High throughput (up to 1000 transactions per second) and low latency (&#126;1-2 seconds) of operations.
 * Reasonable blockchain finality time (few seconds).
-* Total safety of operations when more than 2/3 of the cluster is non-Byzantine.
-* Ability to notice and dispute an incorrect behavior when there is at least one non-Byzantine node.
 
 ## Architecture overview
 There are following actors in the application network:
@@ -60,25 +60,21 @@ There are following actors in the application network:
 
   The **Judge** is not represented by a single machine – actually, it can be as large as Ethereum blockchain to have the desired trustworthiness properties. For this showcase, however, it is imitated as a single process stub which can only notify the user if there is any disagreement.
 
-The application uses blockchain approach to decompose the application logic into 2 main parts:
-* replicated transaction log
-* state machine with the domain-specific logic
-
-This decomposition allows simplifying the development process. This modularization is not only logical but also physical: transaction log and state machine run in separate processes, implemented in different languages.
+Two major logical parts can be marked out in the demo application. One is a BFT consensus engine with a replicated transaction log which is provided by the Tendermint platform. Another is a state machine with domain-specific state transitions induced by transactions. We will discuss both parts in more details below.
 
 ![Architecture](architecture.png)
 
 ### Tendermint
 
-The application uses [Tendermint](https://github.com/tendermint/tendermint) platform which provides replicated transaction log components (**TM Core**), in particular:
-* distributed transaction cache (**Mempool**)
-* blockchain (to store transactions persistently)
-* Byzantine-resistant **Consensus** engine (to reach agreement about the order of transactions)
+[Tendermint](https://github.com/tendermint/tendermint) platform provides a Byzantine-resistant consensus engine (TM Core) which consists of the following parts:
+* distributed transaction cache (**mempool**)
+* blockchain to store transactions
+* Byzantine-resistant **Consensus** module (to reach agreement about the order of transactions)
 * peer-to-peer layer to communicate with other nodes
 * **RPC endpoint** for client requests
 * **Query processor** for making requests to the state
 
-To perform domain-specific logic the application uses its own **State machine** implementing Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html) to follow Tendermint's architecture. It is written in Scala 2.12, compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` for Java ABCI definitions.
+To execute domain-specific logic the application uses its own **State machine** implementing Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html) to follow Tendermint's architecture. It is written in Scala 2.12, compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` for Java ABCI definitions.
 
 As the application is intended to run normally in presence of some failures, including Byzantine failures, the following principles used:
 * Every operation result is verifiable (and thus trusted by the client).
@@ -332,10 +328,12 @@ Dispute cases, in general, cannot be detected by the client, because the client 
 
 Another, even more important, reason is that the dispute case might violate the cluster **safety**! When there is a *Byzantine quorum*, Byzantine nodes might provide to the client as wrong responses as they want, but the client keeps trusting the cluster because no Cases B and even Cases A evidence is observed. So the external Judge should also be able to replay the computations that caused the dispute.
 
-### Dispute case C1: some nodes honest, some not, no quorum
+#### Dispute case C1: some nodes honest, some not, no quorum
 When the last block is `height`-th and there is no quorum (neither honest nor Byzantine) for `height+1`-th block's voting, liveness is violated and new blocks cannot be formed. Such situation might happen if the cluster cannot reach an agreement about next block. Even if TM Core works as expected, different State machines on different nodes might provide to local TM Cores different app hashes for `height`-th block. As already said, Case B2 is usually an aftermath of this case.
 
-To simulate `app_hash` disputes in 4-node cluster the App uses special key `wrong`. Every node's App (indexed 1 to 4 which corresponds to their ports `46158`, `46258`, `46358`, `46458`) interprets any occurrence of its own index in `wrong` value as the flag to provide *wrong* `app_hash` to TM Core. This convention works well to illustrate Dispute case C1. First, let's try using `fastput`, an unchecked alternative to `put` (it does not wait for the next block with the current block's `app_hash`) to submit new `wrong` value:
+To simulate disputes in the local cluster the special key `wrong` might be used. If some node's State machine (indexed 1 to 4 which corresponds to their ports `46158`, `46258`, `46358`, `46458`) get `put` request targeted to `wrong` and a provided value contains node's index, it prepends a prefix `wrong` to this value. For example, after `put wrong=13` request, the 2nd and 4th nodes map `wrong` to `13`, but 1st and 2rd nodes map it to `wrong13`. Consequently, those 'wrong' nodes obtain 'wrong' `app_hash` which disputes with correct `app_hash`. 
+
+This convention works well to illustrate Dispute case C1. First, let's try using `fastput`, an unchecked alternative to `put` (it does not wait for the next block with the current block's `app_hash`) to submit new `wrong` value:
 ```bash
 > python query.py localhost:46157 fastput -v wrong=34
 HEIGHT: 3
@@ -355,13 +353,13 @@ BAD   : Cannot verify tentative '34'! Height is not verifiable
 ```
 `put` waits for `height+1`-th block before responding. As before, 3rd block formation is successful but it's not enough for `put`, it waits for 4th block. After some timeout, it responds that this block is still not available, so tentative `34` value is not confirmed.
 
-The App itself also monitors block creation. By checking it (`screen -x app1`) one can observe the following message in the App's log:
+The State machine itself also monitors block creation. By checking it (`screen -x app1`) one can observe the following message in the App's log:
 ```
 NO CLUSTER QUORUM!
 ```
-This message produced by Monitor thread of the App that checks the following condition periodically: if 1 second elapsed from last non-empty block in the blockchain there must be an empty block after that block. When developing production system such criterion can also be used to detect such kind of dispute and signal the Judge that cluster needs to be fixed. Of course, the timeout value (default is 1 second) is configurable.
+This message produced by Monitor thread of the App that checks the following condition periodically: if 1 second elapsed from last non-empty block in the blockchain there must be an empty block after that block. Such criterion can also be used to detect such kind of dispute and signal the Judge that cluster needs to be fixed. Of course, the timeout value (default is 1 second) is configurable.
 
-### Dispute case C2: dishonest quorum, minority of honest nodes
+#### Dispute case C2: dishonest quorum, minority of honest nodes
 This case can also be illustrated using `wrong` key:
 ```bash
 > python query.py localhost:46157 put -v wrong=234
@@ -371,7 +369,7 @@ PROOF : NO_PROOF
 RESULT: EMPTY
 BAD   : Cannot verify tentative '234'! Height is not verifiable
 ```
-This message is the same as before but the situation is different actually. All nodes except Node 1 return wrong app hash to its TM's, but now those 'wrong' nodes have a quorum! Therefore the result is not confirmed only from the point of view of Node 1. By checking it's log (`screen -x app1`) another Monitor warning can be observed:
+This message is the same as before but the situation is different actually. All nodes except Node 1 obtain wrong app hash, but now those 'wrong' nodes have a quorum! Therefore the result is not confirmed only from the point of view of Node 1. By checking it's log (`screen -x app1`) another Monitor warning can be observed:
 ```
 DISAGREEMENT WITH CLUSTER QUORUM!
 ```
@@ -381,16 +379,12 @@ Let's reset the cluster and try again, submit the same transaction, but connect 
 ```bash
 > python query.py localhost:46257 put -v wrong=234
 HEIGHT: 3
-HASH  : F169...
-PROOF : A7FF..
-RESULT: 234
-BAD   : Proof is invalid
+HASH  : CE773BBAD425FE7C7CA54E890B4E02759564F8E9AB1B82ADCF42437122EDC7CD
+PROOF : A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A 1AACEE49E178FF7836873CB0D520C5C7D82B772D28997A0EE51A837A5AA5683C B8366C6DD77D18CCC60B6824C17C9C0B95063213E32AC14D82D2BEE6981EDB87, 3B52405688C482C40A924C5CFC3357BEA000FA2FC149BFCC8020A18EA02BDD92
+RESULT: wrong234
+OK
 ```
-As expected, from the point of view of 'wrong' nodes everything is well and they try to respond providing their version of `app_hash`. However, the Client is able to check the proof and discovers that it is not consistent with the result and wrong `app_hash`.
-
-This example shows that in presence of the dishonest quorum Tendermint safety is violated and the blockchain is in a falsified state. However, for a production system, the App's Monitor can efficiently detect such problem and raise the dispute to the Judge.
-
-### Dispute case C3: honest quorum, some nodes dishonest or not available
+#### Dispute case C3: honest quorum, some nodes dishonest or not available
 When quorum (2/3+ nodes of the cluster) exists availability of other nodes does not influence cluster's safety or liveness. This demo app does not implement any special checks for the existence of nodes absent or Byzantine during operation processing. Let's illustrate this using `wrong` key:
 ```bash
 > python query.py localhost:46157 put -v wrong=4
