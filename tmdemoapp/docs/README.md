@@ -1,4 +1,4 @@
-# Tendermint Verifiable Computation and Storage Demo
+# Tendermint Verifiable Computations and Storage Demo
 
 This demo application shows how verifiable computations might be processed by a distributed cluster of nodes. It comes with a set of hardcoded operations that can be invoked by the client. Each requested operation is computed by every (ignoring failures or Byzantine cases) cluster node, and if any node disagrees with the computation outcome it can submit a dispute to an external Judge.
 
@@ -8,25 +8,67 @@ Because every computation is verified by the cluster nodes and computation outco
 
 ![Nodes in cluster](cluster_nodes.png)
 
+## Table of contents
+* [Motivation](#motivation)
+* [Architecture overview](#architecture-overview)
+	* [Tendermint](#tendermint)
+* [Operations](#operations)
+	* [Operations, transactions, and state](#operations-transactions-and-state)
+	* [Blocks and transactions](#blocks-and-transactions)
+	* [Operations' verification](#operations-verification)
+* [Installation and run](#installation-and-run)
+* [Sending queries](#sending-queries)
+	* [Writing operations (`put`)](#writing-operations-put)
+	* [Simple queries (`get`, `ls`)](#simple-queries-get-ls)
+	* [Computations without target key (`run`)](#computations-without-target-key-run)
+	* [Operation verbose mode and proofs](#operation-verbose-mode-and-proofs)
+* [Implementation details](#implementation-details)
+	* [Operation processing in the cluster](#operation-processing-in-the-cluster)
+	* [Transaction processing on the single node](#transaction-processing-on-the-single-node)
+	* [ABCI query processing on the single node](#abci-query-processing-on-the-single-node)
+	* [Client implementation details](#client-implementation-details)
+	* [Transactions and Merkle hashes](#transactions-and-merkle-hashes)
+* [Incorrect behavior of the cluster nodes](#incorrect-behavior-of-the-cluster-nodes)
+	* [A. Cases which the client can detect and handle](#a-cases-which-the-client-can-detect-and-handle)
+	* [B. Cases which the client can detect, but cannot handle](#b-cases-which-the-client-can-detect-but-cannot-handle)
+	* [C. Dispute cases](#c-dispute-cases)
+	* [Case C1: some nodes honest, some not, no quorum](#dispute-case-c1-some-nodes-honest-some-not-no-quorum)
+	* [Case C2: dishonest quorum, minority of honest nodes](#dispute-case-c2-dishonest-quorum-minority-of-honest-nodes)
+	* [Case C3: honest quorum, some nodes dishonest or not available](#dispute-case-c3-honest-quorum-some-nodes-dishonest-or-not-available)
+
 ## Motivation
-The application is a proof-of-concept of a distributed system with the following properties:
-* Support of arbitrary deterministic operations: simple reads/writes as well as complex and time-consuming calculations.
+The application is a proof-of-concept of a decentralized system with the following properties:
+* Support of arbitrary deterministic operations: simple reads or writes as well as complex computations.
 * High availability: tolerance to simultaneous failures or Byzantine actions of some subset of nodes.
-* High throughput (1000 transactions per second) and low latency (1-2 seconds) of operations.
-* Small blockchain finality time (several seconds).
-* Extremely low probability of consistency violation.
+* High throughput (up to 1000 transactions per second) and low latency (&#126;1-2 seconds) of operations.
+* Reasonable blockchain finality time (few seconds).
+* Total safety of operations when more than 2/3 of the cluster is non-Byzantine.
+* Ability to notice and dispute an incorrect behavior when there is at least one non-Byzantine node.
 
 ## Architecture overview
-The entire application is distributed over a set of machines having the following roles:
-* client-side **Proxy**, which originates the requests to the cluster
-* cluster **Node**, which serves the requests
-* the **Judge**, which is in charge of resolving complicated disagreements between nodes
+There are following actors in the application network:
+
+* Cluster **nodes** which carry certain *state* and can run computations over it following requests sent by the client. All nodes normally have an identical state – the only exception is when some node is faulty, acting maliciously or has network issues. Computations can be*_effectful* – which means they can change the state.
+
+  When the cluster has reached *consensus* on the computation outcome, the new state can be queried by the client – any up-to-date node can serve it. Consensus requires a 2/3 majority of the nodes to agree to avoid Byzantine nodes sneaking in incorrect results.
+
+* The **client** which can issue simple requests like `put` or `get` to update the cluster state as well as run complex computations. In this demo application an available computations set is limited to operations like `sum` or `factorial` but in principle can be extended by a developer.
+
+  The client is able to check whether the cluster has reached consensus over computation outcomes by checking cluster nodes signatures and validate responses to the queries using Merkle proofs. This means that unless the cluster is taken over by Byzantine nodes the client can be certain about results provided and in general about the cluster state.
+
+* The **Judge** which is in charge of resolving disputes over computations outcomes. Different nodes in the cluster might have different opinions on how their state should change when the computation is performed. Unless there is an unanimous consensus, any disagreeing node can escalate to the **Judge** for the final determination and penalization of uncomplying nodes.
+
+  The **Judge** is not represented by a single machine – actually, it can be as large as Ethereum blockchain to have the desired trustworthiness properties. For this showcase, however, it is imitated as a single process stub which can only notify the user if there is any disagreement.
 
 The application uses blockchain approach to decompose the application logic into 2 main parts:
 * replicated transaction log
 * state machine with the domain-specific logic
 
 This decomposition allows simplifying the development process. This modularization is not only logical but also physical: transaction log and state machine run in separate processes, implemented in different languages.
+
+![Architecture](architecture.png)
+
+### Tendermint
 
 The application uses [Tendermint](https://github.com/tendermint/tendermint) platform which provides replicated transaction log components (**TM Core**), in particular:
 * distributed transaction cache (**Mempool**)
@@ -38,8 +80,6 @@ The application uses [Tendermint](https://github.com/tendermint/tendermint) plat
 
 To perform domain-specific logic the application uses its own **State machine** implementing Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html) to follow Tendermint's architecture. It is written in Scala 2.12, compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` for Java ABCI definitions.
 
-![Architecture](architecture.png)
-
 As the application is intended to run normally in presence of some failures, including Byzantine failures, the following principles used:
 * Every operation result is verifiable (and thus trusted by the client).
 * The application uses Tendermint's implementation of Byzantine fault-tolerant consensus algorithms to provide **safety** and **liveness** without external interference to the cluster – while more than 2/3 of cluster nodes are correct (*quorum* exists).
@@ -50,7 +90,7 @@ The **State machine** maintains its state using in-memory key-value string stora
 ![Key-values in cluster](cluster_key_value.png)
 
 ## Operations
-Tendermint architecture supposes that the client typically interacts with the application via the local **Proxy**. This App uses `query.py` script as client-side Proxy to request arbitrary operations from the cluster, including:
+This App uses `query.py` script as the **Client** to request arbitrary operations from the cluster, including:
 * `put` requests which specify a target key and a constant as its new value: `put a/b=10`.
 * `get` requests to read the value of specified key: `get a/b`.
 * Requests to obtain a result of running an arbitrary function with arguments: `run factorial(a/b)`, `run sum(a/b,a/c)`.
@@ -61,7 +101,7 @@ Tendermint architecture supposes that the client typically interacts with the ap
 
 `get` operations do not change the state of the application. They are implemented via Tendermint **ABCI queries**. As the result of such query the **State machine** returns the value of the requested key.
 
-`run` operations are also *effectul* and their invocation changes the state. They are implemented as combinations of `put` and `get` requests: to perform such operation trustfully, **Proxy** first requests `put`-ting the result of the requested function to some key and then queries its value. 
+`run` operations are also *effectul* and their invocation changes the state. They are implemented as combinations of `put` and `get` requests: to perform such operation trustfully, the **Client** first requests `put`-ting the result of the requested function to some key and then queries its value. 
 
 ### Blocks and transactions
 Tendermint Core orders incoming transactions, passes them to the App and stores them persistently. It also combines transactions into **blocks**. So the blockchain is the ordered sequence of blocks whereas the block contains the ordered sequence of transaction. Beside the transaction list, a block also has some [metadata](http://tendermint.readthedocs.io/en/master/specification/block-structure.html) that help to provide integrity and verifiability guarantees. Basically, this metadata include:
@@ -100,7 +140,7 @@ To run the App, a **Node** machine needs:
 * [Tendermint](http://tendermint.readthedocs.io/en/master/install.html)
 * GNU `screen` (to run single-machine cluster)
 
-To query Nodes from the client-side proxy, a client machine needs:
+To send queries, a Client machine needs:
 * Python 2.7 with `sha3` package installed
 
 There are scripts that automate deployment and running 4 Application nodes on the local machine.
@@ -219,7 +259,7 @@ The output of `parse_chain.py` also shows that the Tendermint blockchain stores 
 ## Implementation details
 
 ### Operation processing in the cluster
-To initiate an operation the client Proxy needs to connect only a single node of the cluster in normal conditions.
+To initiate an operation the Client needs to connect only a single node of the cluster in normal conditions.
 
 Reading `get` requests are processed on a single node entirely. The node State machine has all required information to process such query because the state with key-value tree and their proofs is fully replicated. The node TM Core also has everything to process `get` query because the blockchain is also fully replicated and contains all information not only about blocks but also about the blocks signatures of other nodes and therefore can prove to the client that the provided response is consistent with those nodes signed the blockchain data.
 
@@ -248,12 +288,12 @@ The State machine processed the query by looking up for the target key in a stat
 
 Note that the State machine might handle Mempool (`CheckTx`), Consensus (`DeliverTx`, `Commit`) and Query request pipelines concurrently. Also, it maintains separate states for those pipelines, so none of the *Query* states might be affected by 'real-time' *Consensus* state possibly modified by applying new transaction at the same time. This design, together with making the target height explicit, allows to isolate different states and avoid race conditions between transactions and queries.
 
-### Client-side Proxy implementation details
-To make a reading (`get`) request, the Proxy first gets the latest verifiable `height` and its `app_hash` from the blockchain RPC. This is the last but one `height` (because the latest one could never be verifiable, its `app_hash` is not available). Then a single ABCI Query call with the `get` target key and the latest verifiable `height` is enough to get the required value together with Merkle proof and check that the value and the proof are consistent with `app_hash`.
+### Client implementation details
+To make a reading (`get`) request, the Client first gets the latest verifiable `height` and its `app_hash` from the blockchain RPC. This is the last but one `height` (because the latest one could never be verifiable, its `app_hash` is not available). Then a single ABCI Query call with the `get` target key and the latest verifiable `height` is enough to get the required value together with Merkle proof and check that the value and the proof are consistent with `app_hash`.
 
-To make a writing (`put`) requests, the Proxy broadcasts the transaction to the cluster. Upon successful broadcast and insertion of the transaction into some block, the Proxy knows the corresponding block `height`. This `height` becomes verifiable as soon as the next block is committed (as mentioned earlier normally this happens in a short time, by default 1 second at most). Then to verify successful `put` (and to get computation result in case of the computational `put`), the Proxy just needs to make the ABCI Query with the target key and `height`, like for the `get` request in the previous paragraph.
+To make a writing (`put`) requests, the Client broadcasts the transaction to the cluster. Upon successful broadcast and insertion of the transaction into some block, the Client knows the corresponding block `height`. This `height` becomes verifiable as soon as the next block is committed (as mentioned earlier normally this happens in a short time, by default 1 second at most). Then to verify successful `put` (and to get computation result in case of the computational `put`), the Client just needs to make the ABCI Query with the target key and `height`, like for the `get` request in the previous paragraph.
 
-`run` requests processing is very similar to `put` processing. The only difference that the Proxy generates a 'hidden' target key and use it to invoke the calculation via Tendermint transaction and then to read it via ABCI Query.
+`run` requests processing is very similar to `put` processing. The only difference that the Client generates a 'hidden' target key and use it to invoke the calculation via Tendermint transaction and then to read it via ABCI Query.
 
 ### Transactions and Merkle hashes
 The State machine does not recalculate Merkle hashes during `DeliverTx` processing. In case block consists of several transactions, the State machine modifies key tree and marks changed paths by clearing Merkle hashes until ABCI `Commit` processing.
@@ -268,7 +308,7 @@ Note that described merkelized structure is just for demo purposes and not self-
 
 ## Incorrect behavior of the cluster nodes
 As any viable distributed system, this Application is designed to handle incorrect or even malicious behavior of the cluster nodes. To avoid the over-complication the following statements considered:
-* The client-side Proxy is correct.
+* The Client is correct.
 * The Judge is correct. This might look as a serious limitation *but using some highly trusted source like Ethereum smart contract as the Judge in the production scenario might be a valid solution.* This App implements the Judge as a very simple program just for demo purposes.
 * The nodes' public keys are known to all cluster participants.
 * The set of nodes in the cluster is immutable. A mutable node set might be handled too, but this is out of the scope of this demo Application.
@@ -276,16 +316,16 @@ As any viable distributed system, this Application is designed to handle incorre
 * The correct nodes can communicate with the client and the Judge.
 * It is needless to consider situations when some nodes are partly correct (correct TM Core and incorrect State machine or vice versa).
 
-### A. Incorrect behavior cases which the client can detect and handle
-1. The node is not available or RPC request to the node is timed out. In this case the Proxy just retries request to another node, its possible that the rest of nodes is enough to have a quorum and keep the App alive.
-2. The TM Core blockchain RPCs (`block`, `blockchain`) return response with inconsistent information: falsified transactions in the blocks, incorrect block hashes, incorrect vote signatures or signatures that are not matched with known public keys. In this case, the Proxy treats the node as incorrect (possibly Byzantine) and retries request to another node.
-3. The TM Core ABCI Query returns wrong result/proof combination (inconsistent with the target height's `app_hash`). Like for Case 2, in this case, the Proxy treats the node as incorrect (possibly Byzantine) and retries request to another node.
-4. The TM Core blockchain RPCs return stale data. The Proxy expects some maximum time between the blocks, so observing the larger time since the latest block is the reason to retry the request to another node. Note that the current node cannot be considered Byzantine for sure because it might experience connection problems with the rest of the cluster.
+### A. Cases which the client can detect and handle
+1. The node is not available or RPC request to the node is timed out. In this case the Client just retries request to another node, its possible that the rest of nodes is enough to have a quorum and keep the App alive.
+2. The TM Core blockchain RPCs (`block`, `blockchain`) return response with inconsistent information: falsified transactions in the blocks, incorrect block hashes, incorrect vote signatures or signatures that are not matched with known public keys. In this case, the Client treats the node as incorrect (possibly Byzantine) and retries request to another node.
+3. The TM Core ABCI Query returns wrong result/proof combination (inconsistent with the target height's `app_hash`). Like for Case 2, in this case, the Client treats the node as incorrect (possibly Byzantine) and retries request to another node.
+4. The TM Core blockchain RPCs return stale data. The Client expects some maximum time between the blocks, so observing the larger time since the latest block is the reason to retry the request to another node. Note that the current node cannot be considered Byzantine for sure because it might experience connection problems with the rest of the cluster.
 
-### B. Incorrect behavior cases which the client can detect, but cannot handle
-After detecting those cases the Proxy is sure that the cluster **liveness** is violated. An external interference is required to restore it.
-1. The Proxy retried the request for cases A1-A4 for all cluster nodes and they all are failed.
-2. The cluster cannot commit `height+1`-th block while the Proxy waits for it to have `height`-th block verifiable. This is actually a subcase of the previous case, but it appears if the cluster recently committed `height`-th block during `put` or `run` processing. The failure to progress in this case probably means that the nodes have different `app_hash`-es for `height`-th block, so this is likely an evidence of the **dispute** in the cluster.
+### B. Cases which the client can detect, but cannot handle
+After detecting those cases the Client is sure that the cluster **liveness** is violated. An external interference is required to restore it.
+1. The Client retried the request for cases A1-A4 for all cluster nodes and they all are failed.
+2. The cluster cannot commit `height+1`-th block while the Client waits for it to have `height`-th block verifiable. This is actually a subcase of the previous case, but it appears if the cluster recently committed `height`-th block during `put` or `run` processing. The failure to progress in this case probably means that the nodes have different `app_hash`-es for `height`-th block, so this is likely an evidence of the **dispute** in the cluster.
 
 ### C. Dispute cases
 Dispute cases, in general, cannot be detected by the client, because the client is normally satisfied by the first successful response while retrying response to the cluster nodes. The external Judge is available to the correct nodes in order to prevent such situations (instead of multicasting the client requests to all cluster nodes and comparing the responses).
@@ -346,7 +386,7 @@ PROOF : A7FF..
 RESULT: 234
 BAD   : Proof is invalid
 ```
-As expected, from the point of view of 'wrong' nodes everything is well and they try to respond providing their version of `app_hash`. However, Proxy is able to check the proof and discovers that it is not consistent with the result and wrong `app_hash`.
+As expected, from the point of view of 'wrong' nodes everything is well and they try to respond providing their version of `app_hash`. However, the Client is able to check the proof and discovers that it is not consistent with the result and wrong `app_hash`.
 
 This example shows that in presence of the dishonest quorum Tendermint safety is violated and the blockchain is in a falsified state. However, for a production system, the App's Monitor can efficiently detect such problem and raise the dispute to the Judge.
 
