@@ -75,7 +75,7 @@ Two major logical parts can be marked out in the demo application. One is a BFT 
 * **RPC endpoint** for client requests
 * **Query processor** for making requests to the state
 
-To execute domain-specific logic the application uses its own **State machine** implementing Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html) to follow Tendermint's architecture. It is written in Scala 2.12, compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` for Java ABCI definitions.
+To execute domain-specific logic the application uses its own **State machine** implementing Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html) to follow Tendermint's architecture. It is written in Scala 2.12, compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` library providing ABCI definitions for JVM languages.
 
 ### State machine and computations correctness
 
@@ -384,13 +384,13 @@ OK
 
 The 'wrong' nodes (1st, 2nd, and 3rd) have a quorum (despite the 4th disagrees with them) and provide their version of state and corresponding `app_hash`. The Client validates the blockchain information and provided response and treats it correct. From the Client's point of view it is impossible in general case to discriminate a correct response and a falsified response in presence of a Byzantine quorum.
 
-This example is pretty artificial because the trivial comparison of the target value `123` with the result `wrong123` might be done. However, in case of non-trivial operation the client is unable to reproduce an arbitrary computation and cannot detect the incorrect response.
+This example is pretty artificial because the trivial comparison of the target value `123` with the result `wrong123` might be done. However, in case of a non-trivial operation the client is unable to reproduce an arbitrary computation and cannot detect the incorrect response.
 
 By checking the only correct 4th Node log (`screen -x app4`) another Monitor warning can be observed:
 ```
 DISAGREEMENT WITH CLUSTER QUORUM!
 ```
-To achieve this detection the App's Monitor periodically requests its peer's TM Core RPC's for the next block and compares their `app_hash`-es with its own `app_hash`. In case of disagreement the Monitor immediately raise the dispute to the Judge.
+To achieve this detection the App's Monitor periodically requests its peer's TM Core RPC's for the next block and compares their `app_hash`-es with its own `app_hash`. In case of a disagreement the Monitor immediately raises the dispute to the Judge.
 
 #### Dispute case C3: correct quorum, some nodes Byzantine or not available
 This case is symmetric to the previous, but the quorum is correct now.
