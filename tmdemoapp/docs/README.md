@@ -33,9 +33,9 @@ Because every computation is verified by the cluster nodes and computation outco
 	* [A. Cases which the client can detect and handle](#a-cases-which-the-client-can-detect-and-handle)
 	* [B. Cases which the client can detect, but cannot handle](#b-cases-which-the-client-can-detect-but-cannot-handle)
 	* [C. Dispute cases](#c-dispute-cases)
-		* [C1. Some nodes honest, some not, no quorum](#dispute-case-c1-some-nodes-honest-some-not-no-quorum)
-		* [C2. Dishonest quorum, minority of honest nodes](#dispute-case-c2-dishonest-quorum-minority-of-honest-nodes)
-		* [C3. Honest quorum, some nodes dishonest or not available](#dispute-case-c3-honest-quorum-some-nodes-dishonest-or-not-available)
+		* [C1. Some nodes correct, some not, no quorum](#dispute-case-c1-some-nodes-correct-some-not-no-quorum)
+		* [C2. Byzantine quorum, minority of correct nodes](#dispute-case-c2-byzantine-quorum-minority-of-correct-nodes)
+		* [C3. Correct quorum, some nodes Byzantine or not available](#dispute-case-c3-correct-quorum-some-nodes-byzantine-or-not-available)
 
 ## Motivation
 The application is a proof-of-concept of a decentralized system with the following properties:
@@ -340,8 +340,8 @@ Dispute cases, in general, cannot be detected by the client, because the client 
 
 Another, even more important, reason is that the dispute case might violate the cluster **safety**! When there is a *Byzantine quorum*, Byzantine nodes might provide to the client as wrong responses as they want, but the client keeps trusting the cluster because no Cases B and even Cases A evidence is observed. So the external Judge should also be able to replay the computations that caused the dispute.
 
-#### Dispute case C1: some nodes honest, some not, no quorum
-When the last block is `height`-th and there is no quorum (neither honest nor Byzantine) for `height+1`-th block's voting, liveness is violated and new blocks cannot be formed. Such situation might happen if the cluster cannot reach an agreement about next block. Even if TM Core works as expected, different State machines on different nodes might provide to local TM Cores different app hashes for `height`-th block. As already said, Case B2 is usually an aftermath of this case.
+#### Dispute case C1: some nodes correct, some not, no quorum
+When the last block is `height`-th and there is no quorum (neither correct nor Byzantine) for `height+1`-th block's voting, liveness is violated and new blocks cannot be formed. Such situation might happen if the cluster cannot reach an agreement about next block. Even if TM Core works as expected, different State machines on different nodes might provide to local TM Cores different app hashes for `height`-th block. As already said, Case B2 is usually an aftermath of this case.
 
 To simulate disputes in the local cluster the special key `wrong` might be used. If some node's State machine (indexed 1 to 4 which corresponds to their ports `46158`, `46258`, `46358`, `46458`) get `put` request targeted to `wrong` and a provided value contains node's index, it prepends a prefix `wrong` to this value. For example, after `put wrong=13` request, the 2nd and 4th nodes map `wrong` to `13`, but 1st and 2rd nodes map it to `wrong13`. Consequently, those 'wrong' nodes obtain 'wrong' `app_hash` which disputes with correct `app_hash`. 
 
@@ -371,7 +371,7 @@ NO CLUSTER QUORUM!
 ```
 This message produced by Monitor thread of the App that checks the following condition periodically: if 1 second elapsed from last non-empty block in the blockchain there must be an empty block after that block. Such criterion can also be used to detect such kind of dispute and signal the Judge that cluster needs to be fixed. Of course, the timeout value (default is 1 second) is configurable.
 
-#### Dispute case C2: dishonest quorum, minority of honest nodes
+#### Dispute case C2: Byzantine quorum, minority of correct nodes
 This case can also be illustrated using `wrong` key:
 ```bash
 > python query.py localhost:46157 put -v wrong=123
@@ -382,17 +382,19 @@ RESULT: wrong123
 OK
 ```
 
-The 'wrong' nodes (1st, 2nd, and 3rd) have a quorum (dispite the 4th disagrees with them) and provide their version of state and corresponding `app_hash`. The Client validates the blockchain information and provided response and treats it correct. From the Client's point of view it is impossible in general case to discriminate the correct response and falsified response in presence of a Byzantine quorum.
+The 'wrong' nodes (1st, 2nd, and 3rd) have a quorum (despite the 4th disagrees with them) and provide their version of state and corresponding `app_hash`. The Client validates the blockchain information and provided response and treats it correct. From the Client's point of view it is impossible in general case to discriminate a correct response and a falsified response in presence of a Byzantine quorum.
 
-This example is pretty artificial because the trivial comparison of the target value `123` with the result `wrong123` might be done. However, in case of non-trivial operation the client is unable to reproduce its computation and cannot detect the increrrect response.
+This example is pretty artificial because the trivial comparison of the target value `123` with the result `wrong123` might be done. However, in case of non-trivial operation the client is unable to reproduce an arbitrary computation and cannot detect the incorrect response.
 
 By checking the only correct 4th Node log (`screen -x app4`) another Monitor warning can be observed:
 ```
 DISAGREEMENT WITH CLUSTER QUORUM!
 ```
-To achieve this detection the App's Monitor periodically requests its peer's TM Core RPC's for the next block and compares its own `app_hash` with their `app_hash`-es. In case of disagreement the Monitor immediately raise the dispute to the Judge.
+To achieve this detection the App's Monitor periodically requests its peer's TM Core RPC's for the next block and compares their `app_hash`-es with its own `app_hash`. In case of disagreement the Monitor immediately raise the dispute to the Judge.
 
-#### Dispute case C3: honest quorum, some nodes dishonest or not available
+#### Dispute case C3: correct quorum, some nodes Byzantine or not available
+This case is symmetric to the previous, but the quorum is correct now.
+
 When a quorum (2/3+ nodes of the cluster) exists, the availability of other nodes does not influence cluster's safety or liveness. This demo app does not implement any special checks for the existence of nodes absent or Byzantine during operation processing. Let's illustrate this using `wrong` key:
 ```bash
 > python query.py localhost:46157 put -v wrong=4
@@ -403,4 +405,4 @@ RESULT: 4
 OK
 ```
 
-It's supposed that if some node disagrees with the quorum, it needs to alert itself like for Dispute case C2, so cases C2 and C3 are symmetric in general.
+Here the 4th Node is 'wrong'. It detects a disagreement and might raise the dispute to the Judge. But in this case the Judge would detect this Node as incorrect and punish it.
