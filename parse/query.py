@@ -1,8 +1,8 @@
 import sys, urllib, json, datetime, time, hashlib, sha3
 from common_parse_utils import readjson, getsyncinfo, getmaxheight
 
-CMD_PUT = "put"
-CMD_CHECKED_PUT = "chput"
+CMD_PUT = "fastput"
+CMD_CHECKED_PUT = "put"
 CMD_RUN = "run"
 CMD_GET_QUERY = "get"
 CMD_LS_QUERY = "ls"
