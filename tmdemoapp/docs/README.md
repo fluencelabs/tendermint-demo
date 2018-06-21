@@ -12,6 +12,7 @@ Because every computation is verified by the cluster nodes and computation outco
 * [Motivation](#motivation)
 * [Architecture overview](#architecture-overview)
 	* [Tendermint](#tendermint)
+	* [State machine and computations correctness](#state-machine-and-computations-correctness)
 * [Operations](#operations)
 	* [Operations, transactions, and state](#operations-transactions-and-state)
 	* [Blocks and transactions](#blocks-and-transactions)
@@ -76,10 +77,19 @@ Two major logical parts can be marked out in the demo application. One is a BFT 
 
 To execute domain-specific logic the application uses its own **State machine** implementing Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html) to follow Tendermint's architecture. It is written in Scala 2.12, compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` for Java ABCI definitions.
 
-As the application is intended to run normally in presence of some failures, including Byzantine failures, the following principles used:
-* Every operation result is verifiable (and thus trusted by the client).
-* The application uses Tendermint's implementation of Byzantine fault-tolerant consensus algorithms to provide **safety** and **liveness** without external interference to the cluster – while more than 2/3 of cluster nodes are correct (*quorum* exists).
-* It can restore liveness and even safety after violating quorum requirements – every node could rapidly detect problems with the blockchain or disagreement with the rest of nodes and raise a dispute to the **Judge**.
+### State machine and computations correctness
+
+Each node carries a state which is updated using transactions furnished through the consensus engine. Assuming that more than 2/3 of the cluster nodes are honest, the BFT consensus engine guarantees _correctness_ of state transitions. In other words, unless 1/3 or more of the cluster nodes are Byzantine there is no way the cluster will allow an incorrect transition. 
+
+If every transition made since the genesis was correct, we can expect that the state itself is correct too. Results obtained by querying such a state should be correct as well (assuming a state is a verifiable data structure).
+
+However, it's not possible to expect that a cluster can't be taken over by Byzantine nodes. Let's assume that `n` nodes in the cluster were independently sampled from a large enough pool of the nodes containing a fraction of `q` Byzantine nodes. In this case the number of Byzantine nodes in the cluster (denoted by `X`) approximately follows a Binomial distribution `B(n, q)`. The probability of the cluster failing BFT assumptions is `Pr(X >= ceil(1/3 * n))` which for 10 cluster nodes and 20% of Byzantine nodes in the network pool is `~0.1`.
+
+This a pretty high probability, and if we want to keep the cluster size reasonably low to have desired cost efficiency another trick should work. We can allow any node in the cluster to escalate to the external trusted **Judge** if it disagrees with state transitions made by the rest of the nodes. In this case, all nodes in the cluster need to be Byzantine to keep the **Judge** uninformed. For the considered case the probability of such event is `~1E-7`.
+
+This way it's possible to improve the probability of noticing an incorrect behavior almost by six orders of magnitude. However, there is a significant difference between the two approaches. Once the cluster has reached consensus, the state transition is made and potentially incorrect results can be immediately used by the client. An escalation mechanism allows to notice an incorrect cluster behavior only _post factum_.
+
+To compensate, a **Judge** can penalize malicious nodes by forfeiting their security deposits for the benefit of the client. However, even in this case a client can't be a mission critical application where no amount of compensation would offset the damage made.
 
 The **State machine** maintains its state using in-memory key-value string storage. Keys here are hierarchical, `/`-separated. This key tree is *merkelized*, so for every key the hash of its associated value (if present) and its children keys is also stored.
 
