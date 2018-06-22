@@ -10,7 +10,7 @@ def uvarint(buf):
 		s += 7
 	return 0
 
-def parseutc(utctxt):
+def parse_utc(utctxt):
 	#tz conversion may be wrong
 	now_timestamp = time.time()
 	offset = datetime.datetime.fromtimestamp(now_timestamp) - datetime.datetime.utcfromtimestamp(now_timestamp)
@@ -22,7 +22,7 @@ def parseutc(utctxt):
 	ns = int(tail.rstrip("Z").ljust(9, "0"), 10)
 	return pure + ns / 1e9
 	
-def formatbytes(value):
+def format_bytes(value):
 	if value < 1024:
 		return "%.0f B" % value
 	elif value < 1024 * 1024:
@@ -30,17 +30,17 @@ def formatbytes(value):
 	else:
 		return "%.3f MiB" % (value / 1024.0 / 1024.0)
 
-def readjson(url):
+def read_json(url):
 	response = urllib.urlopen("http://" + url)
 	return json.loads(response.read())
 
-def getsyncinfo(tmaddress):
-	status = readjson(tmaddress + "/status")["result"]
+def get_sync_info(tmaddress):
+	status = read_json(tmaddress + "/status")["result"]
 	if "sync_info" in status: # compatibility
 		return status["sync_info"]
 	else:
 		return status
 
-def getmaxheight(tmaddress):
-	return getsyncinfo(tmaddress)["latest_block_height"]
+def get_max_height(tmaddress):
+	return get_sync_info(tmaddress)["latest_block_height"]
 

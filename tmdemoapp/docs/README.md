@@ -81,9 +81,11 @@ To execute domain-specific logic the application uses its own **State machine** 
 
 Each node carries a state which is updated using transactions furnished through the consensus engine. Assuming that more than 2/3 of the cluster nodes are honest, the BFT consensus engine guarantees *correctness* of state transitions. In other words, unless 1/3 or more of the cluster nodes are Byzantine there is no way the cluster will allow an incorrect transition. 
 
-If every transition made since the genesis was correct, we can expect that the state itself is correct too. Results obtained by querying such a state should be correct as well (assuming a state is a verifiable data structure).
+If every transition made since the genesis was correct, we can expect that the state itself is correct too. Results obtained by querying such a state should be correct as well (assuming a state is a verifiable data structure). However, if at any moment in time there was an incorrect transition, all subsequent states can potentially be incorrect even if all later transitions were correct.
 
-<img src="state_machine.png" alt="State machine" width="511px"/>
+<p align="center">
+<img src="state_machine.png" alt="State machine" width="702px"/>
+</p>
 
 However, it's not possible to expect that a cluster can't be taken over by Byzantine nodes. Let's assume that `n` nodes in the cluster were independently sampled from a large enough pool of the nodes containing a fraction of `q` Byzantine nodes. In this case the number of Byzantine nodes in the cluster (denoted by `X`) approximately follows a Binomial distribution `B(n, q)`. The probability of the cluster failing BFT assumptions is `Pr(X >= ceil(1/3 * n))` which for 10 cluster nodes and 20% of Byzantine nodes in the network pool is `~0.1`.
 
@@ -93,7 +95,9 @@ This way it's possible to improve the probability of noticing an incorrect behav
 
 To compensate, a **Judge** can penalize malicious nodes by forfeiting their security deposits for the benefit of the client. However, even in this case a client can't be a mission critical application where no amount of compensation would offset the damage made.
 
-The **State machine** maintains its state using in-memory key-value string storage. Keys here are hierarchical, `/`-separated. This key tree is *merkelized*, so for every key the hash of its associated value (if present) and its children keys is also stored.
+In this demo application the state is implemented as an hierarchical key-value tree which is combined with a Merkle tree. This allows a client that has obtained a correct Merkle root from a trusted location to query a single, potentially malicious, cluster node and validate results using Merkle proofs.
+
+Such trusted location is provided by the Tendermint consensus engine. Cluster nodes reach consensus not only over the canonical order of transactions, but also over the Merkle root of the state – `app_hash` in Tendermint terminology. The client can obtain such Merkle root from any node in the cluster, verify cluster nodes signatures and check that more than 2/3 of the nodes have accepted the Merkle root change.
 
 ![Key-values in cluster](cluster_key_value.png)
 
@@ -326,9 +330,9 @@ As any viable distributed system, this Application is designed to handle incorre
 
 ### A. Cases which the client can detect and handle
 1. The node is not available or RPC request to the node is timed out. In this case the Client just retries request to another node, its possible that the rest of nodes is enough to have a quorum and keep the App alive.
-2. The TM Core blockchain RPCs (`block`, `blockchain`) return response with inconsistent information: falsified transactions in the blocks, incorrect block hashes, incorrect vote signatures or signatures that are not matched with known public keys. In this case, the Client treats the node as incorrect (possibly Byzantine) and retries request to another node.
+2. The TM Core blockchain RPCs (`block`, `blockchain`) return response with inconsistent information: falsified transactions in the blocks, incorrect block hashes, incorrect vote signatures or signatures that are not matched with known public keys. In this case, the Client treats the node as incorrect (possibly Byzantine) and retries request to another node. *Not implemented yet*.
 3. The TM Core ABCI Query returns wrong result/proof combination (inconsistent with the target height's `app_hash`). Like for Case 2, in this case, the Client treats the node as incorrect (possibly Byzantine) and retries request to another node.
-4. The TM Core blockchain RPCs return stale data. The Client expects some maximum time between the blocks, so observing the larger time since the latest block is the reason to retry the request to another node. Note that the current node cannot be considered Byzantine for sure because it might experience connection problems with the rest of the cluster.
+4. The TM Core blockchain RPCs return stale data. The Client expects some maximum time between the blocks, so observing the larger time since the latest block is the reason to retry the request to another node. Note that the current node cannot be considered Byzantine for sure because it might experience connection problems with the rest of the cluster. *Not implemented yet*.
 
 ### B. Cases which the client can detect, but cannot handle
 After detecting those cases the Client is sure that the cluster **liveness** is violated. An external interference is required to restore it.
@@ -365,11 +369,33 @@ BAD   : Cannot verify tentative '34'! Height is not verifiable
 ```
 `put` waits for `height+1`-th block before responding. As before, 3rd block formation is successful but it's not enough for `put`, it waits for 4th block. After some timeout, it responds that this block is still not available, so tentative `34` value is not confirmed.
 
-The State machine itself also monitors block creation. By checking it (`screen -x app1`) one can observe the following message in the App's log:
+The State machine itself also monitors block creation. The Monitor thread of the App that checks the following condition periodically: if 1 second elapsed from last non-empty block in the blockchain there must be an empty block after that block. In case this does not hold, the Monitors detects a dispute and signals the Judge that cluster needs to be fixed. Of course, the timeout value (default is 1 second) is configurable. This might be checked by querying the Judge status:
+```bash
+> curl -s "localhost:8080/status" | jq
+{
+  "1": {
+    "status": "No quorum",
+    "app_hash": "366d393bad6563c067cbf8f7cf582eb7fe61217c8fc0264903789e307fc95efb",
+    "height": 3
+  },
+  "3": {
+    "status": "No quorum",
+    "app_hash": "a35cf646e011dcba103705b1bca2ab196ae8fa1f46a662e086a33c6dd518cc22",
+    "height": 3
+  },
+  "2": {
+    "status": "No quorum",
+    "app_hash": "366d393bad6563c067cbf8f7cf582eb7fe61217c8fc0264903789e307fc95efb",
+    "height": 3
+  },
+  "4": {
+    "status": "No quorum",
+    "app_hash": "a35cf646e011dcba103705b1bca2ab196ae8fa1f46a662e086a33c6dd518cc22",
+    "height": 3
+  }
+}
 ```
-NO CLUSTER QUORUM!
-```
-This message produced by Monitor thread of the App that checks the following condition periodically: if 1 second elapsed from last non-empty block in the blockchain there must be an empty block after that block. Such criterion can also be used to detect such kind of dispute and signal the Judge that cluster needs to be fixed. Of course, the timeout value (default is 1 second) is configurable.
+Here it might be noticed that every node detects the absence of quorum and provides its own version of `app_hash`. Half of the nodes have the correct `app_hash` whereas the rest of nodes has a wrong one.
 
 #### Dispute case C2: Byzantine quorum, minority of correct nodes
 This case can also be illustrated using `wrong` key:
@@ -386,11 +412,33 @@ The 'wrong' nodes (1st, 2nd, and 3rd) have a quorum (despite the 4th disagrees w
 
 This example is pretty artificial because the trivial comparison of the target value `123` with the result `wrong123` might be done. However, in case of a non-trivial operation the client is unable to reproduce an arbitrary computation and cannot detect the incorrect response.
 
-By checking the only correct 4th Node log (`screen -x app4`) another Monitor warning can be observed:
+Node 4 is able to detect the disagreement, which might be checked via the Judge status
+```bash
+> curl -s "localhost:8080/status" | jq
+{
+  "2": {
+    "status": "OK",
+    "app_hash": "3e5b81d6c436a5319577637a005fda99eaa632c360aca23ae9bb3bd3766cfe02",
+    "height": 4
+  },
+  "4": {
+    "status": "Disagreement with quorum",
+    "app_hash": "431ed90111f3a4d5349df955b664ca63950cb768526dd9f5105c26a3723cbb53",
+    "height": 3
+  },
+  "1": {
+    "status": "OK",
+    "app_hash": "3e5b81d6c436a5319577637a005fda99eaa632c360aca23ae9bb3bd3766cfe02",
+    "height": 4
+  },
+  "3": {
+    "status": "OK",
+    "app_hash": "3e5b81d6c436a5319577637a005fda99eaa632c360aca23ae9bb3bd3766cfe02",
+    "height": 4
+  }
+}
 ```
-DISAGREEMENT WITH CLUSTER QUORUM!
-```
-To achieve this detection the App's Monitor periodically requests its peer's TM Core RPC's for the next block and compares their `app_hash`-es with its own `app_hash`. In case of a disagreement the Monitor immediately raises the dispute to the Judge.
+To achieve this detection the State machine Monitor periodically requests its peer's TM Core RPC's for the next block and compares their `app_hash`-es with its own `app_hash`. In case of a disagreement the Monitor immediately raises the dispute to the Judge.
 
 #### Dispute case C3: correct quorum, some nodes Byzantine or not available
 This case is symmetric to the previous, but the quorum is correct now.
