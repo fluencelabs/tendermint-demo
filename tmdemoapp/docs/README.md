@@ -83,7 +83,7 @@ Such trusted location is provided by the Tendermint consensus engine. Cluster no
 
 ### Computations correctness
 
-However, it's not possible to expect that a cluster can't be taken over by Byzantine nodes. Let's assume that `n` nodes in the cluster were independently sampled from a large enough pool of the nodes containing a fraction of `q` Byzantine nodes. In this case the number of Byzantine nodes in the cluster (denoted by `X`) approximately follows a Binomial distribution `B(n, q)`. The probability of the cluster failing BFT assumptions is `Pr(X >= ceil(1/3 * n))` which for 10 cluster nodes and 20% of Byzantine nodes in the network pool is `~0.1`.
+It's not possible to expect that a cluster can't be taken over by Byzantine nodes. Let's assume that `n` nodes in the cluster were independently sampled from a large enough pool of the nodes containing a fraction of `q` Byzantine nodes. In this case the number of Byzantine nodes in the cluster (denoted by `X`) approximately follows a Binomial distribution `B(n, q)`. The probability of the cluster failing BFT assumptions is `Pr(X >= ceil(1/3 * n))` which for 10 cluster nodes and 20% of Byzantine nodes in the network pool is `~0.1`.
 
 This a pretty high probability, and if we want to keep the cluster size reasonably low to have desired cost efficiency another trick should work. We can allow any node in the cluster to escalate to the external trusted **Judge** if it disagrees with state transitions made by the rest of the nodes. In this case, all nodes in the cluster need to be Byzantine to keep the **Judge** uninformed. For the considered case the probability of such event is `~1E-7`.
 
@@ -101,19 +101,21 @@ To compensate, a **Judge** can penalize malicious nodes by forfeiting their secu
 * **RPC endpoint** for client requests
 * **Query processor** for making requests to the state
 
-To execute domain-specific logic the application uses its own **State machine** implementing Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html) to follow Tendermint's architecture. It is written in Scala 2.12, compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` library providing ABCI definitions for JVM languages.
+To execute domain-specific logic the application **state machine** implements Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html). It is written in Scala 2.12, compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` library providing ABCI definitions for JVM languages.
 
-**Tendermint Core** orders incoming transactions, passes them to the App and stores them persistently. It also combines transactions into **blocks**. So the blockchain is the ordered sequence of blocks whereas the block contains the ordered sequence of transactions. Beside the transaction list, a block also has some [metadata](http://tendermint.readthedocs.io/en/master/specification/block-structure.html) that help to provide integrity and verifiability guarantees. Basically, this metadata include:
+**Tendermint Core** orders incoming transactions, passes them to the application and stores them persistently. It also combines transactions into ordered lists – **blocks**. Besides the transaction list, a block also has some [metadata](http://tendermint.readthedocs.io/en/master/specification/block-structure.html) that helps to provide integrity and verifiability guarantees. Basically this metadata consists of two major parts:
 * metadata related to the current block
-	* `height` – the index of this block in the blockchain
-	* the block creation time
+	* `height` – an index of this block in the blockchain
+	* block creation time
 	* hash of the transaction list in the block
 	* hash of the previous block
 * metadata related to the previous block
-	* `app_hash` – the hash of the App state obtained from the State machine at the end of the previous block
-	* information about a *voting process* for the previous block
+	* `app_hash` – hash of the state machine state occurred at the end of the previous block
+	* previous block *voting process* information
 
+<p align="center">
 <img src="images/blocks.png" alt="Blocks" width="600px"/>
+</p>
 
 For every block, a single TM Core, the block **proposer**, is chosen. The proposer composes the transaction list, prepares the metadata and initiates the [voting process](http://tendermint.readthedocs.io/en/master/introduction.html#consensus-overview). Then other TM Cores make votes, accepting or declining the proposed block, and sign them. If enough amount of accepting votes exists (a **quorum**, more than 2/3 of TM Cores in the cluster), the block is considered committed. At this time every TM Core requests the local State machine to apply block transactions to the state (in their order) and asks the State machine for `app_hash`. If for some reasons a quorum is not reached (an invalid proposer, a proposal containing wrong hashes, timed out voting, etc.), the proposer is changed and a new attempt (**round**) of block creation (for the same `height` as the previous attempt) is started.
 
