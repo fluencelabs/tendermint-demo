@@ -6,7 +6,9 @@ Results of each computation are stored on the cluster nodes and can be later on 
 
 Because every computation is verified by the cluster nodes and computation outcomes are verified using Merkle proofs, the client normally doesn't have to interact with the entire cluster. Moreover, the client can interact with as little as a single node – this won't change safety properties. However, liveness might be compromised – for example, if the node the client is interacting with is silently dropping incoming requests.
 
-![Nodes in cluster](images/cluster_nodes.png)
+<p align="center">
+<img src="images/cluster_nodes.png" alt="Cluster" width="681px"/>
+</p>
 
 ## Table of contents
 * [Motivation](#motivation)
