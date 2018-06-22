@@ -64,9 +64,9 @@ def wait_for_height(tmaddress, height):
 	for w in range(0, 5):
 		if get_max_height(tmaddress) >= height:
 			break
-		time.sleep(1)
+		time.sleep(0.1)
 
-		
+
 
 num_args = len(sys.argv)
 if num_args < 4 or not sys.argv[2] in ALL_COMMANDS:
