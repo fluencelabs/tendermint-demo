@@ -95,40 +95,43 @@ To compensate, a **Judge** can penalize malicious nodes by forfeiting their secu
 
 ### Tendermint
 
-[Tendermint](https://github.com/tendermint/tendermint) platform provides a Byzantine-resistant consensus engine (TM Core) which consists of the following parts:
+[Tendermint](https://github.com/tendermint/tendermint) platform provides a Byzantine-resistant consensus engine (**Tendermint Core**) which roughly consists of the following parts:
 * distributed transaction cache (**mempool**)
 * blockchain to store transactions
-* Byzantine-resistant **Consensus** module (to reach agreement about the order of transactions)
+* Byzantine-resistant **сonsensus** module (to reach the agreement on the order of transactions)
 * peer-to-peer layer to communicate with other nodes
-* **RPC endpoint** for client requests
-* **Query processor** for making requests to the state
+* **RPC endpoint** to serve client requests
+* **query processor** for making requests to the state
 
-To execute domain-specific logic the application **state machine** implements Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html). It is written in Scala 2.12, compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` library providing ABCI definitions for JVM languages.
+To execute domain-specific logic the application state machine implements Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html). It is written in `Scala 2.12`, compatible with `Tendermint v0.19.x` and uses the [`jabci`](https://mvnrepository.com/artifact/com.github.jtendermint/jabci) library providing ABCI definitions for JVM languages.
 
-**Tendermint Core** orders incoming transactions, passes them to the application and stores them persistently. It also combines transactions into ordered lists – **blocks**. Besides the transaction list, a block also has some [metadata](http://tendermint.readthedocs.io/en/master/specification/block-structure.html) that helps to provide integrity and verifiability guarantees. Basically this metadata consists of two major parts:
+Tendermint Core orders incoming transactions, passes them to the application and stores them persistently. It also combines transactions into ordered lists – _blocks_. Besides the transaction list, a block also has some [metadata](http://tendermint.readthedocs.io/en/master/specification/block-structure.html) that helps to provide integrity and verifiability guarantees. Basically this metadata consists of two major parts:
 * metadata related to the current block
 	* `height` – an index of this block in the blockchain
 	* block creation time
 	* hash of the transaction list in the block
 	* hash of the previous block
 * metadata related to the previous block
-	* `app_hash` – hash of the state machine state occurred at the end of the previous block
+	* `app_hash` – hash of the state machine state that was achieved at the end of the previous block
 	* previous block *voting process* information
 
 <p align="center">
 <img src="images/blocks.png" alt="Blocks" width="600px"/>
 </p>
 
-For every block, a single TM Core, the block **proposer**, is chosen. The proposer composes the transaction list, prepares the metadata and initiates the [voting process](http://tendermint.readthedocs.io/en/master/introduction.html#consensus-overview). Then other TM Cores make votes, accepting or declining the proposed block, and sign them. If enough amount of accepting votes exists (a **quorum**, more than 2/3 of TM Cores in the cluster), the block is considered committed. At this time every TM Core requests the local State machine to apply block transactions to the state (in their order) and asks the State machine for `app_hash`. If for some reasons a quorum is not reached (an invalid proposer, a proposal containing wrong hashes, timed out voting, etc.), the proposer is changed and a new attempt (**round**) of block creation (for the same `height` as the previous attempt) is started.
+To create a new block a single node – the block _proposer_ is chosen. The proposer composes the transaction list, prepares the metadata and initiates the [voting process](http://tendermint.readthedocs.io/en/master/introduction.html#consensus-overview). Then other nodes make votes accepting or declining the proposed block. If enough number of votes accepting the block exists (i.e. the _quorum_ was achieved – more than 2/3 of the nodes in the cluster voted positively), the block is considered committed. 
 
-Note that the information about a voting process and `app_hash` is not stored in the current block, because this part of metadata is not known to proposer at time of block creation and becomes available only after successful voting. That's why `app_hash` and voting information for the current block are stored in the next block (and become available outside TM Core only upon the next block commit).
+Once this happens, every node's state machine applies newly committed block transactions to the state in the same order those transactions are present in the block. Once all block transactions are applied, the new state machine `app_hash` is memorized by the node and will be used in the next block formation. 
 
-Blocks play the key role in the App (as well as in any application using the blockchain approach) because:
-* Grouping transactions together dramatically improves the distributed system performance by reducing the storage and computational overhead per transaction: all metadata are associated with blocks and all nodes' hashes and signatures are applied to blocks. Transactions are just stored inside blocks.
-* Block `height` is a primary identifier of a specific state version. All non-transactional queries to the State machine (like `get` operations) should refer to a particular `height`.
-* Blocks can be empty i. e. contain no transactions. By committing empty blocks, the TM Core might maintain the freshness of the state without creating new transactions and burdening the State machine.
+If for some reason a quorum was not reached the proposer is changed and a new _round_ of a block creation for the same `height` as was in the previous attempt is started. This might happen, for example, if there was an invalid proposer, or a proposal containing incorrect hashes, a timed out voting and so on.
 
-At the `height`-th block commit, only the presence and the order of its transactions is verified, but not the state upon their executing by the State machine. As the `height`-th block's `app_hash` only available when the `height+1`-th block committed, to verify some transaction from the `height`-th block or query to the `height`-th block the client needs to wait for `height+1`-th block. That's why TM Core always starts making the next block a short time after the previous block' commit, this next block might be empty in case no transactions are available.
+Note that the information about the voting process and the `app_hash` achieved during the block processing by the state machine are not stored in the current block. The reason is that this part of metadata is not known to the proposer at time of block creation and becomes available only after successful voting. That's why the `app_hash` and voting information for the current block are stored in the next block. That metadata can be received by external clients only upon the next block commit event.
+
+Grouping transactions together significantly improves performance by reducing the storage and computational overhead per transaction. All metadata including `app_state` and nodes signatures is associated with blocks, not transactions.
+
+It's important to mention that block `height` is a primary identifier of a specific state version. All non-transactional queries to the state machine (e.g. `get` operations) refer to a particular `height`. Also, some blocks might be empty – contain zero transactions. By committing empty blocks, Tendermint maintains the freshness of the state without creating dummy transactions.
+
+Another critical thing to keep in mind is that once the `k` block is committed, only the presence and the order of its transactions is verified, but not the state achieved by their execution. Because the `app_hash` resulted from the block `k` execution is only available when the block `k + 1` is committed, the client has to wait for the next block to trust a result computed by the transaction in the block `k`. To avoid making the client wait if there were no transactions for a while, Tendermint makes the next block (possibly empty) in a short time after the previous block was committed.
 
 ### Operations
 There are few different operations that can be invoked using the bundled command-line client: 
