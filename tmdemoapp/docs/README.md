@@ -133,17 +133,17 @@ At the `height`-th block commit, only the presence and the order of its transact
 ### Operations
 There are few different operations that can be invoked using the bundled command-line client: 
 * `put` operations which request to assign a constant value to the key: `put a/b=10`
-* computational `put` operations which request to assign the function result to the key: `put a/c=factorial(a/b)`.
+* computational `put` operations which request to assign the function result to the key: `put a/c=factorial(a/b)`
 * `get` operations which read the value associated with a specified key: `get a/b`
-* `run` operations which request to respond with the function result: `run factorial(a/b)`
+* `run` operations which await for the cluster to respond with the function result: `run factorial(a/b)`
 
 `put` operations are _effectful_ and are explicitly changing the application state. To process such operation, **TM Core** sends a transaction to the state machine which applies this transaction to its state, typically changing the associated value of the specified key. If requested operation is a computational `put`, state machine finds the corresponding function from a set of previously hardcoded ones, executes it and then assigns the result to the target key. 
 
 Correctness of `put` operations can be verified by the presence of a corresponding transaction in a correctly formed block and an undisputed `app_hash` in the next block. Basically, this would mean that a cluster has reached quorum regarding this transaction processing. 
 
-`get` operations do not change the application state and are implemented as Tendermint _ABCI queries_. As the result of such query the state machine returns the value of the requested key. Correctness of `get` operations can be verified by matching the Merkle proof of the returned result with the `app_hash` received by consensus.
+`get` operations do not change the application state and are implemented as Tendermint _ABCI queries_. As the result of such query the state machine returns the value associated with the requested key. Correctness of `get` operations can be verified by matching the Merkle proof of the returned result with the `app_hash` confirmed by consensus.
 
-`run` operations are just a shortcut to a combination of `put` and `get` requests. To perform such operation, the client first requests to assign the result of the specified function to a certain key and then queries the value associated with this key.
+`run` operations are just a shortcut to the combination of `put` and `get` requests. To perform such operation, the client first requests to assign the result of the specified function to a certain key and then queries the value associated with this key.
 
 ## Installation and run
 To run the App, a **Node** machine needs:
