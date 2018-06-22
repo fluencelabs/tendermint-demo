@@ -100,7 +100,7 @@ In this demo application the state is implemented as an hierarchical key-value t
 Such trusted location is provided by the Tendermint consensus engine. Cluster nodes reach consensus not only over the canonical order of transactions, but also over the Merkle root of the state – `app_hash` in Tendermint terminology. The client can obtain such Merkle root from any node in the cluster, verify cluster nodes signatures and check that more than 2/3 of the nodes have accepted the Merkle root change.
 
 <p align="center">
-<img src="images/hierarchical_tree.png" alt="Hierarchical tree" width="521px"/>
+<img src="images/hierarchical_tree.png" alt="Hierarchical tree" width="625px"/>
 </p>
 
 ## Operations
