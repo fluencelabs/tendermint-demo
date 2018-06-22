@@ -131,23 +131,19 @@ Blocks play the key role in the App (as well as in any application using the blo
 At the `height`-th block commit, only the presence and the order of its transactions is verified, but not the state upon their executing by the State machine. As the `height`-th block's `app_hash` only available when the `height+1`-th block committed, to verify some transaction from the `height`-th block or query to the `height`-th block the client needs to wait for `height+1`-th block. That's why TM Core always starts making the next block a short time after the previous block' commit, this next block might be empty in case no transactions are available.
 
 ### Operations
-This App uses `query.py` script as the **Client** to request arbitrary operations from the cluster, including:
-* `put` requests which specify a target key and a constant as its new value: `put a/b=10`.
-* `get` requests to read the value of specified key: `get a/b`.
-* Requests to obtain a result of running an arbitrary function with arguments: `run factorial(a/b)`, `run sum(a/b,a/c)`.
-* Computational `put` requests which specify that the result a of function invocation should be assigned to a target key: `put a/c=factorial(a/b)`.
+There are few different operations that can be invoked using the bundled command-line client: 
+* `put` operations which request to assign a constant value to the key: `put a/b=10`
+* computational `put` operations which request to assign the function result to the key: `put a/c=factorial(a/b)`.
+* `get` operations which read the value associated with a specified key: `get a/b`
+* `run` operations which request to respond with the function result: `run factorial(a/b)`
 
-`put` operations are *effectful* and change the application state explicitly. They are implemented via Tendermint **transactions**. **TM Core** sends a transaction to the State machine and the **State machine** applies this transaction to its state, typically changing the associated value of the target key.
+`put` operations are _effectful_ and are explicitly changing the application state. To process such operation, **TM Core** sends a transaction to the state machine which applies this transaction to its state, typically changing the associated value of the specified key. If requested operation is a computational `put`, state machine finds the corresponding function from a set of previously hardcoded ones, executes it and then assigns the result to the target key. 
 
-`get` operations do not change the state of the application. They are implemented via Tendermint **ABCI queries**. As the result of such query the State machine returns the value of the requested key.
+Correctness of `put` operations can be verified by the presence of a corresponding transaction in a correctly formed block and an undisputed `app_hash` in the next block. Basically, this would mean that a cluster has reached quorum regarding this transaction processing. 
 
-`run` operations are also *effectul* and their invocation changes the state. They are implemented as combinations of `put` and `get` requests: to perform such operation trustfully, the **Client** first requests `put`-ting the result of the requested function to some key and then queries its value. 
+`get` operations do not change the application state and are implemented as Tendermint _ABCI queries_. As the result of such query the state machine returns the value of the requested key. Correctness of `get` operations can be verified by matching the Merkle proof of the returned result with the `app_hash` received by consensus.
 
-Reading and writing operations use different techniques to prove to the client that the operation is actually invoked and its result is correct. 
-
-Reading `get` operation takes advantage of *merkelized* structure of the application state and provides Merkle proof of the result correctness. Client has all information to match the query result and the Merkle proof of this result with `app_hash` for the queried state. The Merkle proof of a target key in the hierarchical key tree is the sequence of Merkle hashes of all keys and values along the way from the tree root to the target key.
-
-Any `put` or `run` invocation leads to adding the corresponding transaction to the blockchain. The presence of this transaction in a correctly formed block (and also confirmed by the undisputed `app_hash` in the next block) means that there is a quorum in the cluster regarding this transaction. Later the operation's target key requested and its value together with Merkle proof verifies operation's correctness.
+`run` operations are just a shortcut to a combination of `put` and `get` requests. To perform such operation, the client first requests to assign the result of the specified function to a certain key and then queries the value associated with this key.
 
 ## Installation and run
 To run the App, a **Node** machine needs:
