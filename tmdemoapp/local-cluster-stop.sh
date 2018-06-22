@@ -7,3 +7,5 @@ screen -S tm1 -X stuff $'\003'
 screen -S tm2 -X stuff $'\003'
 screen -S tm3 -X stuff $'\003'
 screen -S tm4 -X stuff $'\003'
+
+screen -S judge -X stuff $'\003'

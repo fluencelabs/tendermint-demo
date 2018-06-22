@@ -1,5 +1,6 @@
+#!/usr/bin/python
 import sys, urllib, json, datetime, time, hashlib, sha3
-from common_parse_utils import readjson, getsyncinfo, getmaxheight
+from common_parse_utils import read_json, get_sync_info, get_max_height
 
 CMD_PUT = "fastput"
 CMD_CHECKED_PUT = "put"
@@ -19,30 +20,30 @@ def verify_merkle_proof(result, proof, app_hash):
 	return True
 
 def checked_abci_query(tmaddress, height, command, query, tentative_info):
-	if getmaxheight(tmaddress) < height + 1:
+	if get_max_height(tmaddress) < height + 1:
 		return (height, None, None, None, False, "Cannot verify tentative '%s'! Height is not verifiable" % (info or ""))
 
-	apphash = readjson('%s/block?height=%d' % (tmaddress, height + 1))["result"]["block"]["header"]["app_hash"]
-	response = readjson('%s/abci_query?height=%d&data="%s:%s"' % (tmaddress, height, command, query))["result"]["response"]
+	app_hash = read_json('%s/block?height=%d' % (tmaddress, height + 1))["result"]["block"]["header"]["app_hash"]
+	response = read_json('%s/abci_query?height=%d&data="%s:%s"' % (tmaddress, height, command, query))["result"]["response"]
 	(result, proof) = (
 		response["value"].decode('base64') if "value" in response else None,
 		response["proof"].decode('base64') if "proof" in response else None
 		)
 	if result is None:
-		return (height, result, proof, apphash, False, "Result is empty")
+		return (height, result, proof, app_hash, False, "Result is empty")
 	elif tentative_info is not None and result != tentative_info:
-		return (height, result, proof, apphash, False, "Verified result '%s' doesn't match tentative '%s'!" % (result, info))
+		return (height, result, proof, app_hash, False, "Verified result '%s' doesn't match tentative '%s'!" % (result, info))
 	elif proof is None:
-		return (height, result, proof, apphash, False, "No proof")
-	elif not verify_merkle_proof(result, proof, apphash) :
-		return (height, result, proof, apphash, False, "Proof is invalid")
+		return (height, result, proof, app_hash, False, "No proof")
+	elif not verify_merkle_proof(result, proof, app_hash) :
+		return (height, result, proof, app_hash, False, "Proof is invalid")
 	else:
-		return (height, result, proof, apphash, True, "")
+		return (height, result, proof, app_hash, True, "")
 
 def print_checked_abci_query(tmaddress, height, command, query, tentative_info):
-	(height, result, proof, apphash, success, message) = checked_abci_query(tmaddress, height, command, query, tentative_info)
+	(height, result, proof, app_hash, success, message) = checked_abci_query(tmaddress, height, command, query, tentative_info)
 	print "HEIGHT:", height
-	print "HASH  :", apphash or "NOT_READY"
+	print "HASH  :", app_hash or "NOT_READY"
 	print "PROOF :", (proof or "NO_PROOF").upper()
 	print "RESULT:", result or "EMPTY"
 	if success:
@@ -51,11 +52,11 @@ def print_checked_abci_query(tmaddress, height, command, query, tentative_info):
 		print "BAD   :", message
 
 def latest_provable_height(tmaddress):
-	return getsyncinfo(tmaddress)["latest_block_height"] - 1
+	return get_sync_info(tmaddress)["latest_block_height"] - 1
 
 def wait_for_height(tmaddress, height):
 	for w in range(0, 5):
-		if getmaxheight(tmaddress) >= height:
+		if get_max_height(tmaddress) >= height:
 			break
 		time.sleep(1)
 
@@ -74,7 +75,7 @@ if command in {CMD_PUT, CMD_CHECKED_PUT, CMD_RUN}:
 	else:
 		tx = arg
 		query_key = tx.split("=")[0]
-	response = readjson(tmaddress + '/broadcast_tx_commit?tx="' + tx + '"')
+	response = read_json(tmaddress + '/broadcast_tx_commit?tx="' + tx + '"')
 	if "error" in response:
 		print "ERROR :", response["error"]["data"]
 	else:
