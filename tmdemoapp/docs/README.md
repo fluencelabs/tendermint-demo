@@ -149,19 +149,16 @@ Correctness of `put` operations can be verified by the presence of a correspondi
 `run` operations are just a shortcut to the combination of `put` and `get` requests. To perform such operation, the client first requests to assign the result of the specified function to a certain key and then queries the value associated with this key.
 
 ## Installation and run
-To run the App, a **Node** machine needs:
-* Scala 2.12 with `sbt`
-* [Tendermint](http://tendermint.readthedocs.io/en/master/install.html)
-* GNU `screen` (to run single-machine cluster)
+To run the application, the node machine needs Scala 2.12 with `sbt`, [Tendermint](http://tendermint.readthedocs.io/en/master/install.html) and  GNU `screen`.
 
-To send queries, a Client machine needs:
-* Python 2.7 with `sha3` package installed
+To execute operations a client machine needs Python 2.7 with `sha3` package installed.
 
-There are scripts that automate deployment and running 4 Application nodes on the local machine.
+There are also scripts that automate deployment and running 4 application nodes (the smallest BFT ensemble possible) on the local machine.
 
 ```bash
 source local-cluster-init.sh
 ```
+To prepare configuration files, run `source local-cluster-init.sh`. To start the 
 `local-cluster-init.sh` prepares all required configuration files to launch 4-node cluster locally.
 
 ```bash
