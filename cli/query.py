@@ -60,11 +60,12 @@ def print_checked_abci_query(tmaddress, height, command, query, tentative_info):
 def latest_provable_height(tmaddress):
 	return get_sync_info(tmaddress)["latest_block_height"] - 1
 
-def wait_for_height(tmaddress, height):
-	for w in range(0, 5):
+def wait_for_height(tmaddress, height, seconds_to_wait = 5):
+	wait_step = 0.1
+	for w in range(0, int(seconds_to_wait / wait_step)):
 		if get_max_height(tmaddress) >= height:
 			break
-		time.sleep(0.1)
+		time.sleep(wait_step)
 
 
 
