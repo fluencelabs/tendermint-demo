@@ -83,7 +83,9 @@ Each node carries a state which is updated using transactions furnished through 
 
 If every transition made since the genesis was correct, we can expect that the state itself is correct too. Results obtained by querying such a state should be correct as well (assuming a state is a verifiable data structure).
 
-<img src="state_machine.png" alt="State machine" width="511px"/>
+<p align="center">
+<img src="state_machine.png" alt="State machine" width="702px"/>
+</p>
 
 However, it's not possible to expect that a cluster can't be taken over by Byzantine nodes. Let's assume that `n` nodes in the cluster were independently sampled from a large enough pool of the nodes containing a fraction of `q` Byzantine nodes. In this case the number of Byzantine nodes in the cluster (denoted by `X`) approximately follows a Binomial distribution `B(n, q)`. The probability of the cluster failing BFT assumptions is `Pr(X >= ceil(1/3 * n))` which for 10 cluster nodes and 20% of Byzantine nodes in the network pool is `~0.1`.
 
