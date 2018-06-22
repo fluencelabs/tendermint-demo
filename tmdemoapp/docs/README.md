@@ -6,7 +6,7 @@ Results of each computation are stored on the cluster nodes and can be later on 
 
 Because every computation is verified by the cluster nodes and computation outcomes are verified using Merkle proofs, the client normally doesn't have to interact with the entire cluster. Moreover, the client can interact with as little as a single node – this won't change safety properties. However, liveness might be compromised – for example, if the node the client is interacting with is silently dropping incoming requests.
 
-![Nodes in cluster](cluster_nodes.png)
+![Nodes in cluster](images/cluster_nodes.png)
 
 ## Table of contents
 * [Motivation](#motivation)
@@ -63,7 +63,7 @@ There are following actors in the application network:
 
 Two major logical parts can be marked out in the demo application. One is a BFT consensus engine with a replicated transaction log which is provided by the Tendermint platform. Another is a state machine with domain-specific state transitions induced by transactions. We will discuss both parts in more details below.
 
-![Architecture](architecture.png)
+![Architecture](images/architecture.png)
 
 ### Tendermint
 
@@ -84,7 +84,7 @@ Each node carries a state which is updated using transactions furnished through 
 If every transition made since the genesis was correct, we can expect that the state itself is correct too. Results obtained by querying such a state should be correct as well (assuming a state is a verifiable data structure). However, if at any moment in time there was an incorrect transition, all subsequent states can potentially be incorrect even if all later transitions were correct.
 
 <p align="center">
-<img src="state_machine.png" alt="State machine" width="702px"/>
+<img src="images/state_machine.png" alt="State machine" width="702px"/>
 </p>
 
 However, it's not possible to expect that a cluster can't be taken over by Byzantine nodes. Let's assume that `n` nodes in the cluster were independently sampled from a large enough pool of the nodes containing a fraction of `q` Byzantine nodes. In this case the number of Byzantine nodes in the cluster (denoted by `X`) approximately follows a Binomial distribution `B(n, q)`. The probability of the cluster failing BFT assumptions is `Pr(X >= ceil(1/3 * n))` which for 10 cluster nodes and 20% of Byzantine nodes in the network pool is `~0.1`.
@@ -99,7 +99,9 @@ In this demo application the state is implemented as an hierarchical key-value t
 
 Such trusted location is provided by the Tendermint consensus engine. Cluster nodes reach consensus not only over the canonical order of transactions, but also over the Merkle root of the state – `app_hash` in Tendermint terminology. The client can obtain such Merkle root from any node in the cluster, verify cluster nodes signatures and check that more than 2/3 of the nodes have accepted the Merkle root change.
 
-![Key-values in cluster](cluster_key_value.png)
+<p align="center">
+<img src="images/hierarchical_tree.png" alt="Hierarchical tree" width="625px"/>
+</p>
 
 ## Operations
 This App uses `query.py` script as the **Client** to request arbitrary operations from the cluster, including:
@@ -126,7 +128,7 @@ This App uses `query.py` script as the **Client** to request arbitrary operation
 	* `app_hash` – the hash of the App state obtained from the State machine at the end of the previous block
 	* information about a *voting process* for the previous block
 
-<img src="blocks.png" alt="Blocks" width="600px"/>
+<img src="images/blocks.png" alt="Blocks" width="600px"/>
 
 For every block, a single TM Core, the block **proposer**, is chosen. The proposer composes the transaction list, prepares the metadata and initiates the [voting process](http://tendermint.readthedocs.io/en/master/introduction.html#consensus-overview). Then other TM Cores make votes, accepting or declining the proposed block, and sign them. If enough amount of accepting votes exists (a **quorum**, more than 2/3 of TM Cores in the cluster), the block is considered committed. At this time every TM Core requests the local State machine to apply block transactions to the state (in their order) and asks the State machine for `app_hash`. If for some reasons a quorum is not reached (an invalid proposer, a proposal containing wrong hashes, timed out voting, etc.), the proposer is changed and a new attempt (**round**) of block creation (for the same `height` as the previous attempt) is started.
 
@@ -285,18 +287,18 @@ Writing `run` and `put` requests implemented via Tendermint transactions, so a c
 A single transaction is processing primarily by 2 TM Core modules: **Mempool** and **Consensus**.
 
 A transaction appears in Mempool after one of TM Core [RPC](https://tendermint.readthedocs.io/projects/tools/en/master/specification/rpc.html) `broadcast` method invoked. Mempool then invokes the State machine `CheckTx` ABCI method. The State machine might reject the transaction if it is invalid, in this case, the node does not need to connect other nodes and the rejected transaction removed. Otherwise, the transaction starts spreading through other nodes.
-![Mempool processing](beh_mempool.png)
+![Mempool processing](images/beh_mempool.png)
 
 The transaction remains some time in Mempool until **Consensus** module of the current TM **proposer** consumes it, includes to the newly created block (possibly together with other transactions) and initiates the voting process for this **proposal** block. If the transaction rate is intensive enough or even exceed the node throughput, it is possible that the transaction may 'wait' during several block formation before it is eventually consumed by proposer's Consensus. *Note that the transaction broadcast and the block proposal are processed independently, it is possible but not required that the proposer is the node initially processed the broadcast.*
 
 If more than 2/3 of the nodes voted for the proposal in a timely manner, the voting process ends successfully. In this case, every TM Core starts the block synchronization with its local State machine. During this phase, the proposer and other nodes behave the same way. TM Core consecutively invokes the State machine's ABCI methods: `BeginBlock`, `DeliverTx` (for each transaction), `EndBlock`, and `Commit`. The State machine applies the block's transactions from `DeliverTx` sequence in their order, calculates the new `app_hash` and returns it to TM Core. At that moment the current block processing ends and the block becomes available outside (via RPC methods like `block` and `blockchain`). TM Core keeps `app_hash` and the information about a voting process for including in the next block's metadata.
-![Consensus processing](beh_consensus.png)
+![Consensus processing](images/beh_consensus.png)
 
 ### ABCI query processing on the single node
 ABCI queries that serve non-changing operations are described by the target key and the target `height`. They are initially processed by TM Core's **Query processor** which reroutes them to the State machine.
 
 The State machine processed the query by looking up for the target key in a state corresponding to the `height`-th block. So the State machine maintains several Query states to be able to process different target heights.
-![Query processing](beh_query.png)
+![Query processing](images/beh_query.png)
 
 Note that the State machine handles Mempool (`CheckTx`), Consensus (`DeliverTx`, `Commit`) and Query request pipelines concurrently. Also, it maintains separate states for those pipelines, so none of the *Query* states might be affected by 'real-time' *Consensus* state which is possibly modified by delivered transactions at the same time. This design, together with making the target height explicit, allows to isolate different states and avoid race conditions between transactions and queries.
 
@@ -310,11 +312,11 @@ To make a writing (`put`) requests, the Client broadcasts the transaction to the
 ### Transactions and Merkle hashes
 The State machine does not recalculate Merkle hashes during `DeliverTx` processing. In case block consists of several transactions, the State machine modifies key tree and marks changed paths by clearing Merkle hashes until ABCI `Commit` processing.
 
-<img src="keys_delivertx.png" alt="Keys after DeliverTx" width="600px"/>
+<img src="images/keys_delivertx.png" alt="Keys after DeliverTx" width="600px"/>
 
 On `Commit` the State machine recalculates Merkle hash along changed paths only. Finally, the app returns the resulting root Merkle hash to TM Core and this hash is stored as `app_hash` for a corresponding block.
 
-<img src="keys_commit.png" alt="Keys after Commit" width="600px"/>
+<img src="images/keys_commit.png" alt="Keys after Commit" width="600px"/>
 
 Note that described merkelized structure is just for demo purposes and not self-balanced, it remains efficient only until it the user transactions keep it relatively balanced. Something like [Patricia tree](https://github.com/ethereum/wiki/wiki/Patricia-Tree) should be more appropriate to achieve self-balancing.
 
