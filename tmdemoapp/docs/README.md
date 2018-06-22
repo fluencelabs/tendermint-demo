@@ -10,13 +10,11 @@ Because every computation is verified by the cluster nodes and computation outco
 
 ## Table of contents
 * [Motivation](#motivation)
-* [Architecture overview](#architecture-overview)
+* [Overview](#overview)	
+	* [State machine](#state-machine)
+	* [Computations correctness](#computations-correctness)
 	* [Tendermint](#tendermint)
-	* [State machine and computations correctness](#state-machine-and-computations-correctness)
-* [Operations](#operations)
-	* [Operations, transactions, and state](#operations-transactions-and-state)
-	* [Blocks and transactions](#blocks-and-transactions)
-	* [Operations' verification](#operations-verification)
+	* [Operations](#operations)
 * [Installation and run](#installation-and-run)
 * [Sending queries](#sending-queries)
 	* [Writing operations (`put`)](#writing-operations-put)
@@ -46,7 +44,7 @@ The application is a proof-of-concept of a decentralized system with the followi
 * High throughput (up to 1000 transactions per second) and low latency (&#126;1-2 seconds) of operations.
 * Reasonable blockchain finality time (few seconds).
 
-## Architecture overview
+## Overview
 There are following actors in the application network:
 
 * Cluster **nodes** which carry certain *state* and can run computations over it following requests sent by the client. All nodes normally have an identical state – the only exception is when some node is faulty, acting maliciously or has network issues. Computations can be *effectful* – which means they can change the state.
@@ -65,6 +63,34 @@ Two major logical parts can be marked out in the demo application. One is a BFT 
 
 ![Architecture](images/architecture.png)
 
+### State machine
+
+Each node carries a state which is updated using transactions furnished through the consensus engine. Assuming that more than 2/3 of the cluster nodes are honest, the BFT consensus engine guarantees *correctness* of state transitions. In other words, unless 1/3 or more of the cluster nodes are Byzantine there is no way the cluster will allow an incorrect transition. 
+
+If every transition made since the genesis was correct, we can expect that the state itself is correct too. Results obtained by querying such a state should be correct as well (assuming a state is a verifiable data structure). However, if at any moment in time there was an incorrect transition, all subsequent states can potentially be incorrect even if all later transitions were correct.
+
+<p align="center">
+<img src="images/state_machine.png" alt="State machine" width="702px"/>
+</p>
+
+In this demo application the state is implemented as an hierarchical key-value tree which is combined with a Merkle tree. This allows a client that has obtained a correct Merkle root from a trusted location to query a single, potentially malicious, cluster node and validate results using Merkle proofs.
+
+Such trusted location is provided by the Tendermint consensus engine. Cluster nodes reach consensus not only over the canonical order of transactions, but also over the Merkle root of the state – `app_hash` in Tendermint terminology. The client can obtain such Merkle root from any node in the cluster, verify cluster nodes signatures and check that more than 2/3 of the nodes have accepted the Merkle root change – i.e. that consensus was reached.
+
+<p align="center">
+<img src="images/hierarchical_tree.png" alt="Hierarchical tree" width="625px"/>
+</p>
+
+### Computations correctness
+
+However, it's not possible to expect that a cluster can't be taken over by Byzantine nodes. Let's assume that `n` nodes in the cluster were independently sampled from a large enough pool of the nodes containing a fraction of `q` Byzantine nodes. In this case the number of Byzantine nodes in the cluster (denoted by `X`) approximately follows a Binomial distribution `B(n, q)`. The probability of the cluster failing BFT assumptions is `Pr(X >= ceil(1/3 * n))` which for 10 cluster nodes and 20% of Byzantine nodes in the network pool is `~0.1`.
+
+This a pretty high probability, and if we want to keep the cluster size reasonably low to have desired cost efficiency another trick should work. We can allow any node in the cluster to escalate to the external trusted **Judge** if it disagrees with state transitions made by the rest of the nodes. In this case, all nodes in the cluster need to be Byzantine to keep the **Judge** uninformed. For the considered case the probability of such event is `~1E-7`.
+
+This way it's possible to improve the probability of noticing an incorrect behavior almost by six orders of magnitude. However, there is a significant difference between the two approaches. Once the cluster has reached consensus, the state transition is made and potentially incorrect results can be immediately used by the client. An escalation mechanism allows to notice an incorrect cluster behavior only *post factum*.
+
+To compensate, a **Judge** can penalize malicious nodes by forfeiting their security deposits for the benefit of the client. However, even in this case a client can't be a mission critical application where no amount of compensation would offset the damage made.
+
 ### Tendermint
 
 [Tendermint](https://github.com/tendermint/tendermint) platform provides a Byzantine-resistant consensus engine (TM Core) which consists of the following parts:
@@ -77,47 +103,6 @@ Two major logical parts can be marked out in the demo application. One is a BFT 
 
 To execute domain-specific logic the application uses its own **State machine** implementing Tendermint's [ABCI interface](http://tendermint.readthedocs.io/projects/tools/en/master/abci-spec.html) to follow Tendermint's architecture. It is written in Scala 2.12, compatible with `Tendermint v0.19.x` and uses `com.github.jtendermint.jabci` library providing ABCI definitions for JVM languages.
 
-### State machine and computations correctness
-
-Each node carries a state which is updated using transactions furnished through the consensus engine. Assuming that more than 2/3 of the cluster nodes are honest, the BFT consensus engine guarantees *correctness* of state transitions. In other words, unless 1/3 or more of the cluster nodes are Byzantine there is no way the cluster will allow an incorrect transition. 
-
-If every transition made since the genesis was correct, we can expect that the state itself is correct too. Results obtained by querying such a state should be correct as well (assuming a state is a verifiable data structure). However, if at any moment in time there was an incorrect transition, all subsequent states can potentially be incorrect even if all later transitions were correct.
-
-<p align="center">
-<img src="images/state_machine.png" alt="State machine" width="702px"/>
-</p>
-
-However, it's not possible to expect that a cluster can't be taken over by Byzantine nodes. Let's assume that `n` nodes in the cluster were independently sampled from a large enough pool of the nodes containing a fraction of `q` Byzantine nodes. In this case the number of Byzantine nodes in the cluster (denoted by `X`) approximately follows a Binomial distribution `B(n, q)`. The probability of the cluster failing BFT assumptions is `Pr(X >= ceil(1/3 * n))` which for 10 cluster nodes and 20% of Byzantine nodes in the network pool is `~0.1`.
-
-This a pretty high probability, and if we want to keep the cluster size reasonably low to have desired cost efficiency another trick should work. We can allow any node in the cluster to escalate to the external trusted **Judge** if it disagrees with state transitions made by the rest of the nodes. In this case, all nodes in the cluster need to be Byzantine to keep the **Judge** uninformed. For the considered case the probability of such event is `~1E-7`.
-
-This way it's possible to improve the probability of noticing an incorrect behavior almost by six orders of magnitude. However, there is a significant difference between the two approaches. Once the cluster has reached consensus, the state transition is made and potentially incorrect results can be immediately used by the client. An escalation mechanism allows to notice an incorrect cluster behavior only *post factum*.
-
-To compensate, a **Judge** can penalize malicious nodes by forfeiting their security deposits for the benefit of the client. However, even in this case a client can't be a mission critical application where no amount of compensation would offset the damage made.
-
-In this demo application the state is implemented as an hierarchical key-value tree which is combined with a Merkle tree. This allows a client that has obtained a correct Merkle root from a trusted location to query a single, potentially malicious, cluster node and validate results using Merkle proofs.
-
-Such trusted location is provided by the Tendermint consensus engine. Cluster nodes reach consensus not only over the canonical order of transactions, but also over the Merkle root of the state – `app_hash` in Tendermint terminology. The client can obtain such Merkle root from any node in the cluster, verify cluster nodes signatures and check that more than 2/3 of the nodes have accepted the Merkle root change – i.e. that consensus was reached.
-
-<p align="center">
-<img src="images/hierarchical_tree.png" alt="Hierarchical tree" width="625px"/>
-</p>
-
-## Operations
-This App uses `query.py` script as the **Client** to request arbitrary operations from the cluster, including:
-* `put` requests which specify a target key and a constant as its new value: `put a/b=10`.
-* `get` requests to read the value of specified key: `get a/b`.
-* Requests to obtain a result of running an arbitrary function with arguments: `run factorial(a/b)`, `run sum(a/b,a/c)`.
-* Computational `put` requests which specify that the result a of function invocation should be assigned to a target key: `put a/c=factorial(a/b)`.
-
-### Operations, transactions, and state
-`put` operations are *effectful* and change the application state explicitly. They are implemented via Tendermint **transactions**. **TM Core** sends a transaction to the State machine and the **State machine** applies this transaction to its state, typically changing the associated value of the target key.
-
-`get` operations do not change the state of the application. They are implemented via Tendermint **ABCI queries**. As the result of such query the State machine returns the value of the requested key.
-
-`run` operations are also *effectul* and their invocation changes the state. They are implemented as combinations of `put` and `get` requests: to perform such operation trustfully, the **Client** first requests `put`-ting the result of the requested function to some key and then queries its value. 
-
-### Blocks and transactions
 **Tendermint Core** orders incoming transactions, passes them to the App and stores them persistently. It also combines transactions into **blocks**. So the blockchain is the ordered sequence of blocks whereas the block contains the ordered sequence of transactions. Beside the transaction list, a block also has some [metadata](http://tendermint.readthedocs.io/en/master/specification/block-structure.html) that help to provide integrity and verifiability guarantees. Basically, this metadata include:
 * metadata related to the current block
 	* `height` – the index of this block in the blockchain
@@ -141,7 +126,19 @@ Blocks play the key role in the App (as well as in any application using the blo
 
 At the `height`-th block commit, only the presence and the order of its transactions is verified, but not the state upon their executing by the State machine. As the `height`-th block's `app_hash` only available when the `height+1`-th block committed, to verify some transaction from the `height`-th block or query to the `height`-th block the client needs to wait for `height+1`-th block. That's why TM Core always starts making the next block a short time after the previous block' commit, this next block might be empty in case no transactions are available.
 
-### Operations' verification
+### Operations
+This App uses `query.py` script as the **Client** to request arbitrary operations from the cluster, including:
+* `put` requests which specify a target key and a constant as its new value: `put a/b=10`.
+* `get` requests to read the value of specified key: `get a/b`.
+* Requests to obtain a result of running an arbitrary function with arguments: `run factorial(a/b)`, `run sum(a/b,a/c)`.
+* Computational `put` requests which specify that the result a of function invocation should be assigned to a target key: `put a/c=factorial(a/b)`.
+
+`put` operations are *effectful* and change the application state explicitly. They are implemented via Tendermint **transactions**. **TM Core** sends a transaction to the State machine and the **State machine** applies this transaction to its state, typically changing the associated value of the target key.
+
+`get` operations do not change the state of the application. They are implemented via Tendermint **ABCI queries**. As the result of such query the State machine returns the value of the requested key.
+
+`run` operations are also *effectul* and their invocation changes the state. They are implemented as combinations of `put` and `get` requests: to perform such operation trustfully, the **Client** first requests `put`-ting the result of the requested function to some key and then queries its value. 
+
 Reading and writing operations use different techniques to prove to the client that the operation is actually invoked and its result is correct. 
 
 Reading `get` operation takes advantage of *merkelized* structure of the application state and provides Merkle proof of the result correctness. Client has all information to match the query result and the Merkle proof of this result with `app_hash` for the queried state. The Merkle proof of a target key in the hierarchical key tree is the sequence of Merkle hashes of all keys and values along the way from the tree root to the target key.
