@@ -91,7 +91,7 @@ class ServerMonitor(handler: ABCIHandler) extends Runnable {
     out.writeBytes(gson.toJson(mapAsJavaMap(Map(
       "status" -> status,
       "height" -> state.lastCommittedHeight,
-      "app_hash" -> state.lastAppHash.map(MerkleUtil.merkleHashToHex).getOrElse("empty"))
+      "app_hash" -> state.lastAppHash.map(MerkleUtil.merkleHashToHex).getOrElse("empty").toUpperCase)
     )))
     out.flush()
     out.close()

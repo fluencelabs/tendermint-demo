@@ -16,7 +16,7 @@ class JudgeHandler(BaseHTTPRequestHandler, object):
 
 	def do_POST(self):
 		path_components = self.path.split("/")
-		if path_components[1] == "submit":
+		if len(path_components) >= 3 and path_components[1] == "submit":
 			node = path_components[2]
 			status_json = self.rfile.read(int(self.headers.getheader("Content-Length")))
 			status_map[node] = json.loads(status_json)

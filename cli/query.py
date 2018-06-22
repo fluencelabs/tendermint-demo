@@ -2,11 +2,12 @@
 import sys, urllib, json, datetime, time, hashlib, sha3
 from common_parse_utils import read_json, get_sync_info, get_max_height
 
-CMD_PUT = "fastput"
-CMD_CHECKED_PUT = "put"
+CMD_FAST_PUT = "fastput"
+CMD_PUT = "put"
 CMD_RUN = "run"
 CMD_GET_QUERY = "get"
 CMD_LS_QUERY = "ls"
+ALL_COMMANDS = {CMD_GET_QUERY, CMD_PUT, CMD_RUN, CMD_FAST_PUT, CMD_LS_QUERY}
 
 def verify_merkle_proof(result, proof, app_hash):
 	parts = proof.split(", ")
@@ -40,16 +41,21 @@ def checked_abci_query(tmaddress, height, command, query, tentative_info):
 	else:
 		return (height, result, proof, app_hash, True, "")
 
+def print_response(attribute, value, always=False):
+	need_print = always or "v" in flags
+	if need_print:
+		print attribute.upper() + ":", (8 - len(attribute)) * " ", value
+
 def print_checked_abci_query(tmaddress, height, command, query, tentative_info):
 	(height, result, proof, app_hash, success, message) = checked_abci_query(tmaddress, height, command, query, tentative_info)
-	print "HEIGHT:", height
-	print "HASH  :", app_hash or "NOT_READY"
-	print "PROOF :", (proof or "NO_PROOF").upper()
-	print "RESULT:", result or "EMPTY"
+	print_response("height", height)
+	print_response("app_hash", app_hash or "NOT_READY")
+	print_response("proof", (proof or "NO_PROOF").upper())
+	print_response("result", result or "EMPTY", True)
 	if success:
 		print "OK"
 	else:
-		print "BAD   :", message
+		print_response("bad", message, True)
 
 def latest_provable_height(tmaddress):
 	return get_sync_info(tmaddress)["latest_block_height"] - 1
@@ -60,15 +66,19 @@ def wait_for_height(tmaddress, height):
 			break
 		time.sleep(1)
 
+		
 
-if len(sys.argv) < 3:
-	print "usage: python query.py host:port command arg"
+num_args = len(sys.argv)
+if num_args < 4 or not sys.argv[2] in ALL_COMMANDS:
+	print "usage: python query.py host:port <command> [flags] arg"
+	print "<command> is one of:", ", ".join(ALL_COMMANDS)
 	sys.exit()
 
 tmaddress = sys.argv[1]
 command = sys.argv[2]
-arg = sys.argv[3]
-if command in {CMD_PUT, CMD_CHECKED_PUT, CMD_RUN}:
+flags = "".join(sys.argv[3:(num_args - 1)])
+arg = sys.argv[num_args - 1]
+if command in {CMD_FAST_PUT, CMD_PUT, CMD_RUN}:
 	if command == CMD_RUN:
 		query_key = "optarg"
 		tx = query_key + "=" + arg
@@ -77,20 +87,20 @@ if command in {CMD_PUT, CMD_CHECKED_PUT, CMD_RUN}:
 		query_key = tx.split("=")[0]
 	response = read_json(tmaddress + '/broadcast_tx_commit?tx="' + tx + '"')
 	if "error" in response:
-		print "ERROR :", response["error"]["data"]
+		print_response("error", response["error"]["data"], True)
 	else:
 		height = response["result"]["height"]
 		if response["result"].get("deliver_tx", {}).get("code", "0") != "0":
-			print "HEIGHT:", height
-			print "BAD   :", log or "NO_LOG"
+			print_response("height", height)
+			print_response("bad", log or "NO_MESSAGE", True)
 		else:
 			info = response["result"].get("deliver_tx", {}).get("info")
-			if command in {CMD_CHECKED_PUT, CMD_RUN} and info is not None:
+			if command in {CMD_PUT, CMD_RUN} and info is not None:
 				wait_for_height(tmaddress, height + 1)
 				print_checked_abci_query(tmaddress, height, "get", query_key, info)
 			else:
-				print "HEIGHT:", height
-				print "INFO:  ", info or "EMPTY"
+				print_response("height", height)
+				print_response("info", info or "EMPTY")
 				print "OK"
 elif command in {CMD_GET_QUERY, CMD_LS_QUERY}:
 	height = latest_provable_height(tmaddress)

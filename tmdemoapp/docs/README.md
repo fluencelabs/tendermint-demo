@@ -163,7 +163,7 @@ source local-cluster-init.sh
 ```bash
 ./local-cluster-start.sh
 ```
-`local-cluster-start.sh` starts 8 screen instances (`app[1-4]` instances for the Apps and `tm[1-4]` – for corresponding TM Cores). Cluster initialization may take some seconds, after that the client can query TM Cores' RPC endpoints on any of `46158`, `46258`, `46358` or `46458` ports.
+`local-cluster-start.sh` starts 9 screen instances (`app[1-4]` instances for the Apps, `tm[1-4]` – for corresponding TM Cores, and `judge` for the Judge). Cluster initialization may take some seconds, after that the client can query TM Cores' RPC endpoints on any of `46158`, `46258`, `46358` or `46458` ports.
 
 Other scripts allow to temporarily stop (`local-cluster-stop.sh`), delete (`local-cluster-delete.sh`) and reinitialize/rerun (`local-cluster-reset.sh`) the cluster.
 
@@ -174,7 +174,7 @@ Examples below use `localhost:46157` to query TM Core on 1st local "node", to ac
 To set a new key-value mapping, use:
 ```bash
 > python query.py localhost:46157 put a/b=10
-RESULT: 10
+RESULT:    10
 OK
 ```
 This creates hierarchical key `a/b` (if necessary) and maps it to `10`.
@@ -182,35 +182,35 @@ This creates hierarchical key `a/b` (if necessary) and maps it to `10`.
 `copy` operation allows to assign a value from one key to another:
 ```bash
 > python query.py localhost:46157 put "a/c=copy(a/b)"
-RESULT: 10
+RESULT:    10
 OK
 ```
 
 Submitting an `increment` operation increments the referenced key value and copies the old referenced key value to target key:
 ```bash
 > python query.py localhost:46157 put "a/d=increment(a/c)"
-RESULT: 10
+RESULT:    10
 OK
 ```
 
 `sum` operation sums the values of references keys and assigns the result to the target key:
 ```bash
 > python query.py localhost:46157 put "a/e=sum(a/c,a/d)"
-RESULT: 23
+RESULT:    23
 OK
 ```
 
 `factorial` operation calculates the factorial of the referenced key value:
 ```bash
 > python query.py localhost:46157 put "a/f=factorial(a/b)"
-RESULT: 3628800
+RESULT:    3628800
 OK
 ```
 
 `hiersum` operation calculates the sum of non-empty values for the referenced key and its descendants by hierarchy (all non-empty values should be integer):
 ```bash
 > python query.py localhost:46157 put "c/asum=hiersum(a)"
-RESULT: 3628856
+RESULT:    3628856
 OK
 ```
 
@@ -218,7 +218,7 @@ OK
 `get` reads value associated with the argument:
 ```bash
 > python query.py localhost:46157 get a/e
-RESULT: 23
+RESULT:    23
 OK
 ```
 
@@ -226,7 +226,7 @@ Another non-changing request, `ls`, can be used to obtain argument key's immedia
 ```bash
 > python query.py localhost:46157 ls a
 ...
-RESULT: e f b c d
+RESULT:    e f b c d
 OK
 ```
 
@@ -234,7 +234,7 @@ OK
 Below is the example (note that no target key specified here):
 ```bash
 > python query.py localhost:46157 run "factorial(a/b)"
-RESULT: 3628800
+RESULT:    3628800
 OK
 ```
 
@@ -243,15 +243,15 @@ Now let's examine operations output in verbose mode. It allows to trace informat
 
 Observe the output of `put` operation with `-v` option:
 ```bash
-> python query.py localhost:46157 -v put c/a=20
-HEIGHT: 21
-HASH  : 8FA7A9819479B06B49F7DE770764F353F7492545D182FD9A8F4C4732EC1FC824
-PROOF : A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A 80084BF2FBA02475726FEB2CAB2D8215EAB14BC6BDD8BFB2C8151257032ECD8B 1AE35FBEE05908B77FD671B72B9ED97EC0CCA38854C36A0DC11237D1CC14775F 263AB762270D3B73D3E2CDDF9ACC893BB6BD41110347E5D5E4BD1D3C128EA90A 54FC165745C948BC81F0CB5CC2EAA79A79958AEA184DEAA68060B2F0F3A87AB8 B039179A8A4CE2C252AA6F2F25798251C19B75FC1508D9D511A191E0487D64A7 F753E72D15B4EE70BF6575133C942C3C54D21BA288724A20B971E14DCE2896BC, A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A FEFFF5A5B4C68C7D38DD798B3B58397715EF9E8DB3D13612AC9BC184428E2C0D 8BC5A8D386A05349BB228658D6130F0B88D5F9EC9E86537801377C772AF2C97D 830A839A7E420DC5569E44EBF6881D78A48FF578F9120E91059CFE511B616480 F5BF8CF5F2D84AC23EF8138DE74B2B80F12397A7AB4772257EB9A635BF52C6A2 80084BF2FBA02475726FEB2CAB2D8215EAB14BC6BDD8BFB2C8151257032ECD8B 6FC7F9BF495BA41E1AD304EAB525EF1201623D642E54C547C64855BBFA99FED2, F4E39327CB811E8EA6AE4C9E5FA9CA7A8BFB16E5BD8D89D1A7C7CBD80190AD61
-RESULT: 20
+> python query.py localhost:46157 put -v c/a=20
+HEIGHT:    21
+APP_HASH:  8FA7A9819479B06B49F7DE770764F353F7492545D182FD9A8F4C4732EC1FC824
+PROOF:     A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A 80084BF2FBA02475726FEB2CAB2D8215EAB14BC6BDD8BFB2C8151257032ECD8B 1AE35FBEE05908B77FD671B72B9ED97EC0CCA38854C36A0DC11237D1CC14775F 263AB762270D3B73D3E2CDDF9ACC893BB6BD41110347E5D5E4BD1D3C128EA90A 54FC165745C948BC81F0CB5CC2EAA79A79958AEA184DEAA68060B2F0F3A87AB8 B039179A8A4CE2C252AA6F2F25798251C19B75FC1508D9D511A191E0487D64A7 F753E72D15B4EE70BF6575133C942C3C54D21BA288724A20B971E14DCE2896BC, A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A FEFFF5A5B4C68C7D38DD798B3B58397715EF9E8DB3D13612AC9BC184428E2C0D 8BC5A8D386A05349BB228658D6130F0B88D5F9EC9E86537801377C772AF2C97D 830A839A7E420DC5569E44EBF6881D78A48FF578F9120E91059CFE511B616480 F5BF8CF5F2D84AC23EF8138DE74B2B80F12397A7AB4772257EB9A635BF52C6A2 80084BF2FBA02475726FEB2CAB2D8215EAB14BC6BDD8BFB2C8151257032ECD8B 6FC7F9BF495BA41E1AD304EAB525EF1201623D642E54C547C64855BBFA99FED2, F4E39327CB811E8EA6AE4C9E5FA9CA7A8BFB16E5BD8D89D1A7C7CBD80190AD61
+RESULT:    20
 OK
 ```
 
-`HEIGHT` corresponds to height of block in which the writing transaction eventually included. `HASH` is `app_hash` of `HEIGHT`-th block. `PROOF` is comma-separated list of Merkle hash from the root key to the target key.
+`HEIGHT` corresponds to height of block in which the writing transaction eventually included. `APP_HASH` is `app_hash` of `HEIGHT`-th block. `PROOF` is comma-separated list of Merkle hash from the root key to the target key.
 
 The blockchain contents can be viewed by running a dedicated command:
 ```bash
@@ -350,8 +350,8 @@ To simulate disputes in the local cluster the special key `wrong` might be used.
 This convention works well to illustrate Dispute case C1. First, let's try using `fastput`, an unchecked alternative to `put` (it does not wait for the next block with the current block's `app_hash`) to submit new `wrong` value:
 ```bash
 > python query.py localhost:46157 fastput -v wrong=34
-HEIGHT: 3
-INFO:   34
+HEIGHT:    3
+INFO:      34
 OK
 ```
 This invocation return info `34` and `OK` status. At first glance, everything is well because `height`-th (the 3rd actually) block formed and `INFO` equal to new value `34` got. However, this `INFO` should be considered as *tentative* because despite successful the 3rd block formation it's needed to wait for the 4th block that should contain `app_hash` for 3rd block. Note that the source of `INFO` is just output of `DeliverTx` from single App and this output is neither merkelized nor signed by other nodes.
@@ -359,11 +359,11 @@ This invocation return info `34` and `OK` status. At first glance, everything is
 Now the blockchain has inconsistent state. Let's reset it via `local-cluster-reset.sh`, wait some time for cluster initialization and instead of unchecked `fastput` use checked `put`:
 ```bash
 > python query.py localhost:46157 put -v wrong=34
-HEIGHT: 3
-HASH  : NOT_READY
-PROOF : NO_PROOF
-RESULT: EMPTY
-BAD   : Cannot verify tentative '34'! Height is not verifiable
+HEIGHT:    3
+APP_HASH:  NOT_READY
+PROOF:     NO_PROOF
+RESULT:    EMPTY
+BAD:       Cannot verify tentative '34'! Height is not verifiable
 ```
 `put` waits for `height+1`-th block before responding. As before, 3rd block formation is successful but it's not enough for `put`, it waits for 4th block. After some timeout, it responds that this block is still not available, so tentative `34` value is not confirmed.
 
@@ -373,22 +373,22 @@ The State machine itself also monitors block creation. The Monitor thread of the
 {
   "1": {
     "status": "No quorum",
-    "app_hash": "366d393bad6563c067cbf8f7cf582eb7fe61217c8fc0264903789e307fc95efb",
+    "app_hash": "366D393BAD6563C067CBF8F7CF582EB7FE61217C8FC0264903789E307FC95EFB",
     "height": 3
   },
   "3": {
     "status": "No quorum",
-    "app_hash": "a35cf646e011dcba103705b1bca2ab196ae8fa1f46a662e086a33c6dd518cc22",
+    "app_hash": "A35CF646E011DCBA103705B1BCA2AB196AE8FA1F46A662E086A33C6DD518CC22",
     "height": 3
   },
   "2": {
     "status": "No quorum",
-    "app_hash": "366d393bad6563c067cbf8f7cf582eb7fe61217c8fc0264903789e307fc95efb",
+    "app_hash": "366D393BAD6563C067CBF8F7CF582EB7FE61217C8FC0264903789E307FC95EFB",
     "height": 3
   },
   "4": {
     "status": "No quorum",
-    "app_hash": "a35cf646e011dcba103705b1bca2ab196ae8fa1f46a662e086a33c6dd518cc22",
+    "app_hash": "A35CF646E011DCBA103705B1BCA2AB196AE8FA1F46A662E086A33C6DD518CC22",
     "height": 3
   }
 }
@@ -399,10 +399,10 @@ Here it might be noticed that every node detects the absence of quorum and provi
 This case can also be illustrated using `wrong` key:
 ```bash
 > python query.py localhost:46157 put -v wrong=123
-HEIGHT: 3
-HASH  : 3E5B81D6C436A5319577637A005FDA99EAA632C360ACA23AE9BB3BD3766CFE02
-PROOF : A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A 1AACEE49E178FF7836873CB0D520C5C7D82B772D28997A0EE51A837A5AA5683C 672896E0A9F15E323B6D2166A520701F8423198E0AB3D33415F7E2A844D18454, 10A1E4BF410C6BFD3455EF467700B24842ABE6F9ED6D24C816741F43A8FA8D58
-RESULT: wrong123
+HEIGHT:    3
+APP_HASH:  3E5B81D6C436A5319577637A005FDA99EAA632C360ACA23AE9BB3BD3766CFE02
+PROOF:     A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A 1AACEE49E178FF7836873CB0D520C5C7D82B772D28997A0EE51A837A5AA5683C 672896E0A9F15E323B6D2166A520701F8423198E0AB3D33415F7E2A844D18454, 10A1E4BF410C6BFD3455EF467700B24842ABE6F9ED6D24C816741F43A8FA8D58
+RESULT:    wrong123
 OK
 ```
 
@@ -414,25 +414,25 @@ Node 4 is able to detect the disagreement, which might be checked via the Judge 
 ```bash
 > curl -s "localhost:8080/status" | jq
 {
-  "2": {
-    "status": "OK",
-    "app_hash": "3e5b81d6c436a5319577637a005fda99eaa632c360aca23ae9bb3bd3766cfe02",
-    "height": 4
-  },
-  "4": {
-    "status": "Disagreement with quorum",
-    "app_hash": "431ed90111f3a4d5349df955b664ca63950cb768526dd9f5105c26a3723cbb53",
-    "height": 3
-  },
   "1": {
     "status": "OK",
-    "app_hash": "3e5b81d6c436a5319577637a005fda99eaa632c360aca23ae9bb3bd3766cfe02",
+    "app_hash": "3E5B81D6C436A5319577637A005FDA99EAA632C360ACA23AE9BB3BD3766CFE02",
     "height": 4
   },
   "3": {
     "status": "OK",
-    "app_hash": "3e5b81d6c436a5319577637a005fda99eaa632c360aca23ae9bb3bd3766cfe02",
+    "app_hash": "3E5B81D6C436A5319577637A005FDA99EAA632C360ACA23AE9BB3BD3766CFE02",
     "height": 4
+  },
+  "2": {
+    "status": "OK",
+    "app_hash": "3E5B81D6C436A5319577637A005FDA99EAA632C360ACA23AE9BB3BD3766CFE02",
+    "height": 4
+  },
+  "4": {
+    "status": "Disagreement with quorum",
+    "app_hash": "431ED90111F3A4D5349DF955B664CA63950CB768526DD9F5105C26A3723CBB53",
+    "height": 3
   }
 }
 ```
@@ -444,10 +444,10 @@ This case is symmetric to the previous, but the quorum is correct now.
 When a quorum (2/3+ nodes of the cluster) exists, the availability of other nodes does not influence cluster's safety or liveness. This demo app does not implement any special checks for the existence of nodes absent or Byzantine during operation processing. Let's illustrate this using `wrong` key:
 ```bash
 > python query.py localhost:46157 put -v wrong=4
-HEIGHT: 3
-HASH  : 7B840A448231110FC3746EE06C0053E6EADE213189BDFDB902E7FBA6A486643B
-PROOF : A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A 1AACEE49E178FF7836873CB0D520C5C7D82B772D28997A0EE51A837A5AA5683C B103DC8A5244FD6548F7C0DE617EE66D25F79007A993BC15C6EA11D8390E6279, B410677B84ED73FAC43FCF1ABD933151DD417D932A0EF9B0260ECF8B7B72ECB9
-RESULT: 4
+HEIGHT:    3
+APP_HASH:  7B840A448231110FC3746EE06C0053E6EADE213189BDFDB902E7FBA6A486643B
+PROOF:     A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A 1AACEE49E178FF7836873CB0D520C5C7D82B772D28997A0EE51A837A5AA5683C B103DC8A5244FD6548F7C0DE617EE66D25F79007A993BC15C6EA11D8390E6279, B410677B84ED73FAC43FCF1ABD933151DD417D932A0EF9B0260ECF8B7B72ECB9
+RESULT:    4
 OK
 ```
 
