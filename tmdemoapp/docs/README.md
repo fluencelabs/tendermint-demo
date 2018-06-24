@@ -116,7 +116,7 @@ Tendermint Core orders incoming transactions, passes them to the application and
 	* previous block *voting process* information
 
 <p align="center">
-<img src="images/blocks.png" alt="Blocks" width="600px"/>
+<img src="images/blocks.png" alt="Blocks" width="721px"/>
 </p>
 
 To create a new block a single node – the block _proposer_ is chosen. The proposer composes the transaction list, prepares the metadata and initiates the [voting process](http://tendermint.readthedocs.io/en/master/introduction.html#consensus-overview). Then other nodes make votes accepting or declining the proposed block. If enough number of votes accepting the block exists (i.e. the _quorum_ was achieved – more than 2/3 of the nodes in the cluster voted positively), the block is considered committed. 
