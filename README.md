@@ -160,75 +160,56 @@ To start the cluster, run `tools/local-cluster-start.sh` which starts 9 `screen`
 
 Other scripts allow to temporarily stop (`tools/local-cluster-stop.sh`), delete (`tools/local-cluster-delete.sh`) and reinitialize & restart (`tools/local-cluster-reset.sh`) the cluster.
 
-## Sending queries
-Examples below use `localhost:46157` to query TM Core on 1st local "node", to access other nodes one needs to use other endpoints (`46257`, `46357`, `46457`). In normal conditions, all endpoints behave the same way.
+## Command-line client interface
+Examples below use `localhost:46157` to connect to the 1st local "node". To access other nodes it's possible to use other endpoints (`46257`, `46357`, `46457`). Assuming Byzantine nodes don't silently drop incoming requests, all endpoints behave the same way. To deal with such nodes client could have been sending the same request to multiple nodes at once, but this is not implemented yet.
 
-### Writing operations (`put`)
-To set a new key-value mapping, use:
+### Effectful operations (`put`)
+To order the cluster to assign a value to the target key, issue:
 ```bash
-> python query.py localhost:46157 put a/b=10
-RESULT:    10
-OK
-```
-This creates hierarchical key `a/b` (if necessary) and maps it to `10`.
-
-`copy` operation allows to assign a value from one key to another:
-```bash
-> python query.py localhost:46157 put "a/c=copy(a/b)"
-RESULT:    10
-OK
+> python cli/query.py localhost:46157 put a/b=10
 ```
 
-Submitting an `increment` operation increments the referenced key value and copies the old referenced key value to target key:
+To order the cluster to compute a function result and assign it to the target key, run:
 ```bash
-> python query.py localhost:46157 put "a/d=increment(a/c)"
-RESULT:    10
-OK
+> python cli/query.py localhost:46157 put "a/c=factorial(a/b)"
 ```
 
-`sum` operation sums the values of references keys and assigns the result to the target key:
+Note that `put` operations do not return any result – they merely instruct Tendermint to add a corresponding transaction to the mempool. An actual transaction execution and state update might happen a bit later, when a new block is formed, accepted by consensus and processed by state machines. It's validation happens even later when the consensus is reached on the next block.
+
+There are few other operations bundled with the demo applicaton:
+
 ```bash
-> python query.py localhost:46157 put "a/e=sum(a/c,a/d)"
-RESULT:    23
-OK
+# a trick to copy a value from one key to the target key
+python cli/query.py localhost:46157 put "a/d=copy(a/b)"
+
+# increment the value in-place and associate it's old version with the target key
+python cli/query.py localhost:46157 put "a/e=increment(a/d)"
+
+# compute the sum and assign it to the target key
+python cli/query.py localhost:46157 put "a/f=sum(a/d,a/e)"
+
+# compute a hierachical sum of values associated with the key and it's descendants
+python cli/query.py localhost:46157 put "c/a_sum=hiersum(a)"
 ```
 
-`factorial` operation calculates the factorial of the referenced key value:
+### Querying operations (`get`, `ls`)
+To read the value associated with the key, run:
 ```bash
-> python query.py localhost:46157 put "a/f=factorial(a/b)"
-RESULT:    3628800
-OK
+> python cli/query.py localhost:46157 get a/b
+10
 ```
 
-`hiersum` operation calculates the sum of non-empty values for the referenced key and its descendants by hierarchy (all non-empty values should be integer):
+To list immediate children for the key, issue:
 ```bash
-> python query.py localhost:46157 put "c/asum=hiersum(a)"
-RESULT:    3628856
-OK
+> python cli/query.py localhost:46157 ls a
+b c
 ```
 
-### Simple queries (`get`, `ls`)
-`get` reads value associated with the argument:
+### Compute operations (`run`)
+`run` operations combines `put` and `get` requests and therefore can return the result immediately:
 ```bash
-> python query.py localhost:46157 get a/e
-RESULT:    23
-OK
-```
-
-Another non-changing request, `ls`, can be used to obtain argument key's immediate children list:
-```bash
-> python query.py localhost:46157 ls a
-...
-RESULT:    e f b c d
-OK
-```
-
-### Computations without target key (`run`)
-Below is the example (note that no target key specified here):
-```bash
-> python query.py localhost:46157 run "factorial(a/b)"
-RESULT:    3628800
-OK
+> python cli/query.py localhost:46157 run "factorial(a/b)"
+3628800
 ```
 
 ### Operation verbose mode and proofs
