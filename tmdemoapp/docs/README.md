@@ -63,7 +63,9 @@ There are following actors in the application network:
 
 Two major logical parts can be marked out in the demo application. One is a BFT consensus engine with a replicated transaction log which is provided by the Tendermint platform. Another is a state machine with domain-specific state transitions induced by transactions. We will discuss both parts in more details below.
 
-![Architecture](images/architecture.png)
+<p align="center">
+<img src="images/architecture.png" alt="Architecture" width="834px"/>
+</p>
 
 ### State machine
 
