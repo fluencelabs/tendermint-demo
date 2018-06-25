@@ -61,7 +61,7 @@ There are following actors in the application network:
 
   The **Judge** is not represented by a single machine – actually, it can be as large as Ethereum blockchain to have the desired trustworthiness properties. For this showcase, however, it is imitated as a single process stub which can only notify the user if there is any disagreement.
 
-Two major logical parts can be marked out in the demo application. One is a BFT consensus engine with a replicated transaction log which is provided by the Tendermint platform. Another is a state machine with domain-specific state transitions induced by transactions. We will discuss both parts in more details below.
+Two major logical parts can be marked out in the demo application. One is a BFT consensus engine with a replicated transaction log which is provided by the Tendermint platform (**Tendermint Core**). Another is a state machine with domain-specific state transitions induced by transactions. Each node in the cluster runs an Tendermint Core instance and a state machine instance, and Tendermint connects nodes together. We will discuss both parts in more details below.
 
 <p align="center">
 <img src="images/architecture.png" alt="Architecture" width="834px"/>
