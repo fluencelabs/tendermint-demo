@@ -151,14 +151,14 @@ Correctness of `put` operations can be verified by the presence of a correspondi
 `run` operations are just a shortcut to the combination of `put` and `get` requests. To perform such operation, the client first requests to assign the result of the specified function to a certain key and then queries the value associated with this key.
 
 ## Installation and run
-To run the application, the node machine needs Scala 2.12 with `sbt`, [Tendermint](http://tendermint.readthedocs.io/en/master/install.html) and  GNU `screen`.  
+To run the application, the node machine needs Scala 2.12 with `sbt`, [Tendermint](http://tendermint.readthedocs.io/en/master/install.html) binary and  GNU `screen` in the PATH.  
 To execute operations the client machine needs Python 2.7 with `sha3` package installed.
 
-This demo contains scripts that automate running a cluster of 4 nodes (the smallest BFT ensemble possible) on the local machine. To prepare configuration files, run `source local-cluster-init.sh`. 
+This demo contains scripts that automate running a cluster of 4 nodes (the smallest BFT ensemble possible) on the local machine. To prepare configuration files, run `tools/local-cluster-init.sh`. This will create a directory `$HOME/.tendermint/cluster4` containing Tendermint configuration and data files.
 
-To start the cluster, run `local-cluster-start.sh` which starts 9 screen instances: `app[1-4]` – application backends, `tm[1-4]` – corresponding Tendermint instances and `judge` – Judge stub. Cluster initialization might take few seconds, after which the client can query Tendermint RPC endpoints using any of `46158`, `46258`, `46358` or `46458` ports. 
+To start the cluster, run `tools/local-cluster-start.sh` which starts 9 `screen` instances: `app[1-4]` – application backends, `tm[1-4]` – corresponding Tendermint instances and `judge` – Judge stub. Cluster initialization might take few seconds.
 
-Other scripts allow to temporarily stop (`local-cluster-stop.sh`), delete (`local-cluster-delete.sh`) and reinitialize (`local-cluster-reset.sh`) the cluster.
+Other scripts allow to temporarily stop (`tools/local-cluster-stop.sh`), delete (`tools/local-cluster-delete.sh`) and reinitialize & restart (`tools/local-cluster-reset.sh`) the cluster.
 
 ## Sending queries
 Examples below use `localhost:46157` to query TM Core on 1st local "node", to access other nodes one needs to use other endpoints (`46257`, `46357`, `46457`). In normal conditions, all endpoints behave the same way.
