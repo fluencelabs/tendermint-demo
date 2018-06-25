@@ -18,11 +18,11 @@ Because every computation is verified by the cluster nodes and computation outco
 	* [Tendermint](#tendermint)
 	* [Operations](#operations)
 * [Installation and run](#installation-and-run)
-* [Sending queries](#sending-queries)
-	* [Writing operations (`put`)](#writing-operations-put)
-	* [Simple queries (`get`, `ls`)](#simple-queries-get-ls)
-	* [Computations without target key (`run`)](#computations-without-target-key-run)
-	* [Operation verbose mode and proofs](#operation-verbose-mode-and-proofs)
+* [Command-line interface](#command-line-interface)
+	* [Effectful operations (`put`)](#effectful-operations-put)
+	* [Querying operations (`get, ls`)](#querying-operations-get-ls)
+	* [Compute operations (`run`)](#compute-operations-run)
+	* [Verbose mode and proofs](#verbose-mode-and-proofs)
 * [Implementation details](#implementation-details)
 	* [Operation processing in the cluster](#operation-processing-in-the-cluster)
 	* [Transaction processing on the single node](#transaction-processing-on-the-single-node)
@@ -160,7 +160,7 @@ To start the cluster, run `tools/local-cluster-start.sh` which starts 9 `screen`
 
 Other scripts allow to temporarily stop (`tools/local-cluster-stop.sh`), delete (`tools/local-cluster-delete.sh`) and reinitialize & restart (`tools/local-cluster-reset.sh`) the cluster.
 
-## Command-line client interface
+## Command-line interface
 Examples below use `localhost:46157` to connect to the 1st local "node". To access other nodes it's possible to use other endpoints (`46257`, `46357`, `46457`). Assuming Byzantine nodes don't silently drop incoming requests, all endpoints behave the same way. To deal with such nodes client could have been sending the same request to multiple nodes at once, but this is not implemented yet.
 
 ### Effectful operations (`put`)
@@ -180,16 +180,16 @@ There are few other operations bundled with the demo applicaton:
 
 ```bash
 # a trick to copy a value from one key to the target key
-python cli/query.py localhost:46157 put "a/d=copy(a/b)"
+> python cli/query.py localhost:46157 put "a/d=copy(a/b)"
 
 # increment the value in-place and associate it's old version with the target key
-python cli/query.py localhost:46157 put "a/e=increment(a/d)"
+> python cli/query.py localhost:46157 put "a/e=increment(a/d)"
 
 # compute the sum and assign it to the target key
-python cli/query.py localhost:46157 put "a/f=sum(a/d,a/e)"
+> python cli/query.py localhost:46157 put "a/f=sum(a/d,a/e)"
 
 # compute a hierachical sum of values associated with the key and it's descendants
-python cli/query.py localhost:46157 put "c/a_sum=hiersum(a)"
+> python cli/query.py localhost:46157 put "c/a_sum=hiersum(a)"
 ```
 
 ### Querying operations (`get`, `ls`)
@@ -212,7 +212,7 @@ b c
 3628800
 ```
 
-### Operation verbose mode and proofs
+### Verbose mode and proofs
 Now let's examine operations output in verbose mode. It allows to trace information about the blockchain structure and verifications.
 
 Observe the output of `put` operation with `-v` option:
