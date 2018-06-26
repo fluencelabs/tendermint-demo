@@ -205,30 +205,43 @@ b c
 ### Verbose mode and proofs
 Verbose mode allows to obtain a little bit more information on how the Tendermint blockchain structure looks like and how the client performs verifications.
 
-Let's start with the `put` operation:
+**Let's start with the `put` operation:**
 ```bash
-> python cli/query.py localhost:46157 put -v a/b=20
-height:    3
+> python cli/query.py localhost:46157 put -v root/x=5
+height:    7
 
 # wait for few seconds
 
-> python cli/query.py localhost:46157 put -v a/b=21
-height:    5
+> python cli/query.py localhost:46157 put -v "root/x_fact=factorial(root/x)"
+height:    9
 ```
-In this example, `height` corresponds to the height of block in which the `put` transaction eventually got included. Now, we can checkout blockchain contents using a `parse_chain.py` script:
+In this example, `height` corresponds to the height of the block in which the `put` transaction eventually got included. Now, we can checkout blockchain contents using a `parse_chain.py` script:
 ```bash
 > python cli/parse_chain.py localhost:46157
 height                 block time     txs acc.txs app_hash                            tx1
 ...
-...
-    3: 2018-06-26 13:14:17.902941       1       1 0x420124                         a/b=20
-    4: 2018-06-26 13:14:18.909297       0       1 0x0CE213
-    5: 2018-06-26 13:16:30.076257       1       2 0x0CE213                         a/b=21
-    6: 2018-06-26 13:16:31.083559       0       2 0xA981CC
+    7: 2018-06-26 14:35:02.333653       1       3 0xA981CC                       root/x=5
+    8: 2018-06-26 14:35:03.339486       0       3 0x214F37
+    9: 2018-06-26 14:35:36.698340       1       4 0x214F37  root/x_fact=factorial(root/x)
+   10: 2018-06-26 14:35:37.706811       0       4 0x153A5D
 ```
-This script shows latest blocks in the blockchain with a short summary on their transactions. Here it's possible to see that provided transaction `a/b=21` was indeed included in the block with height returned with operation response. This means that Tendermint majority (more than 2/3 of the cluster nodes) agreed on including this transaction in the mentioned block which was certified by their signatures.
+This script shows latest blocks in the blockchain with a short summary on their transactions. For example, it's possible to see that provided transaction `root/x=5` was indeed included in the block with height `7`. This means that Tendermint majority (more than 2/3 of the cluster nodes) agreed on including this transaction in this block, and that was certified by their signatures.
 
-It's also possible to see that `app_hash` is modified only in the block following the block with transactions. You could note that block 4 (empty) and block 5 (containing `a/b=21`) application hashes are the same. However, block 6 has it's application hash changed which corresponds to the change transaction `a/b=21` introduced into the application state.
+It's also possible to see that `app_hash` is modified only in the block following the block with transactions. You could note that block 8 (empty) and block 9 (containing `root/x_fact=factorial(root/x)`) application hashes are the same. However, block 10 has the application hash changed which corresponds to the changes that transactions from the previous block introduced into the application state.
+
+**Now let's pull results back using `get` operation:**
+```bash
+> python cli/query.py localhost:46157 get -v root/x
+height:    9
+app_hash:  0x153A5D
+5
+
+> python cli/query.py localhost:46157 get -v root/x_fact
+height:    9
+app_hash:  0x153A5D
+120
+```
+Here we can see that both (correct!) results correspond to the latest `app_hash` – `0x153A5D`.
 
 ## Implementation details
 
