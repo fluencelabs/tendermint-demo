@@ -194,18 +194,33 @@ To read the value associated with the key, run:
 ```bash
 > python cli/query.py localhost:46157 get a/b
 10
+
+> python cli/query.py localhost:46157 get a/c
+3628800
+
+> python cli/query.py localhost:46157 get a/d
+11
+
+> python cli/query.py localhost:46157 get a/e
+10
+
+> python cli/query.py localhost:46157 get a/f
+21
+
+> python cli/query.py localhost:46157 get c/a_sum
+3628852
 ```
 
 To list immediate children for the key, issue:
 ```bash
 > python cli/query.py localhost:46157 ls a
-b c
+e f b c d
 ```
 
 ### Verbose mode and proofs
 Verbose mode allows to obtain a little bit more information on how the Tendermint blockchain structure looks like and how the client performs verifications.
 
-**Let's start with the `put` operation:**
+**Let's start with `put` operation:**
 ```bash
 > python cli/query.py localhost:46157 put -v root/x=5
 height:    7
