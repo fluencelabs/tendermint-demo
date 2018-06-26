@@ -137,18 +137,15 @@ Another critical thing to keep in mind is that once the `k` block is committed, 
 
 ### Operations
 There are few different operations that can be invoked using the bundled command-line client: 
-* `put` operations which request to assign a constant value to the key: `put a/b=10`
+* `put` operations which request to assign a constant value to the key: `put a/b=10`.
 * computational `put` operations which request to assign the function result to the key: `put a/c=factorial(a/b)`
 * `get` operations which read the value associated with a specified key: `get a/b`
-* `run` operations which await for the cluster to respond with the function result: `run factorial(a/b)`
 
 `put` operations are _effectful_ and are explicitly changing the application state. To process such operation, Tendermint sends a transaction to the state machine which applies this transaction to its state, typically changing the associated value of the specified key. If requested operation is a computational `put`, state machine finds the corresponding function from a set of previously hardcoded ones, executes it and then assigns the result to the target key. 
 
 Correctness of `put` operations can be verified by the presence of a corresponding transaction in a correctly formed block and an undisputed `app_hash` in the next block. Basically, this would mean that a cluster has reached quorum regarding this transaction processing. 
 
 `get` operations do not change the application state and are implemented as Tendermint _ABCI queries_. As the result of such query the state machine returns the value associated with the requested key. Correctness of `get` operations can be verified by matching the Merkle proof of the returned result with the `app_hash` confirmed by consensus.
-
-`run` operations are just a shortcut to the combination of `put` and `get` requests. To perform such operation, the client first requests to assign the result of the specified function to a certain key and then queries the value associated with this key.
 
 ## Installation and run
 To run the application, the node machine needs Scala 2.12 with `sbt`, [Tendermint](http://tendermint.readthedocs.io/en/master/install.html) binary and  GNU `screen` in the PATH.  
@@ -205,40 +202,33 @@ To list immediate children for the key, issue:
 b c
 ```
 
-### Compute operations (`run`)
-`run` operations combines `put` and `get` requests and therefore can return the result immediately:
-```bash
-> python cli/query.py localhost:46157 run "factorial(a/b)"
-3628800
-```
-
 ### Verbose mode and proofs
-Now let's examine operations output in verbose mode. It allows to trace information about the blockchain structure and verifications.
+Verbose mode allows to obtain a little bit more information on how the Tendermint blockchain structure looks like and how the client performs verifications.
 
-Observe the output of `put` operation with `-v` option:
+Let's start with the `put` operation:
 ```bash
-> python query.py localhost:46157 put -v c/a=20
-HEIGHT:    21
-APP_HASH:  8FA7A9819479B06B49F7DE770764F353F7492545D182FD9A8F4C4732EC1FC824
-PROOF:     A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A 80084BF2FBA02475726FEB2CAB2D8215EAB14BC6BDD8BFB2C8151257032ECD8B 1AE35FBEE05908B77FD671B72B9ED97EC0CCA38854C36A0DC11237D1CC14775F 263AB762270D3B73D3E2CDDF9ACC893BB6BD41110347E5D5E4BD1D3C128EA90A 54FC165745C948BC81F0CB5CC2EAA79A79958AEA184DEAA68060B2F0F3A87AB8 B039179A8A4CE2C252AA6F2F25798251C19B75FC1508D9D511A191E0487D64A7 F753E72D15B4EE70BF6575133C942C3C54D21BA288724A20B971E14DCE2896BC, A7FFC6F8BF1ED76651C14756A061D662F580FF4DE43B49FA82D80A4B80F8434A FEFFF5A5B4C68C7D38DD798B3B58397715EF9E8DB3D13612AC9BC184428E2C0D 8BC5A8D386A05349BB228658D6130F0B88D5F9EC9E86537801377C772AF2C97D 830A839A7E420DC5569E44EBF6881D78A48FF578F9120E91059CFE511B616480 F5BF8CF5F2D84AC23EF8138DE74B2B80F12397A7AB4772257EB9A635BF52C6A2 80084BF2FBA02475726FEB2CAB2D8215EAB14BC6BDD8BFB2C8151257032ECD8B 6FC7F9BF495BA41E1AD304EAB525EF1201623D642E54C547C64855BBFA99FED2, F4E39327CB811E8EA6AE4C9E5FA9CA7A8BFB16E5BD8D89D1A7C7CBD80190AD61
-RESULT:    20
-OK
+> python cli/query.py localhost:46157 put -v a/b=20
+height:    3
+
+# wait for few seconds
+
+> python cli/query.py localhost:46157 put -v a/b=21
+height:    5
 ```
-
-`HEIGHT` corresponds to height of block in which the writing transaction eventually included. `APP_HASH` is `app_hash` of `HEIGHT`-th block. `PROOF` is comma-separated list of Merkle hash from the root key to the target key.
-
-The blockchain contents can be viewed by running a dedicated command:
+In this example, `height` corresponds to the height of block in which the `put` transaction eventually got included. Now, we can checkout blockchain contents using a `parse_chain.py` script:
 ```bash
-> python parse_chain.py localhost:46157
+> python cli/parse_chain.py localhost:46157
 height                 block time     txs acc.txs app_hash                            tx1
 ...
-   20: 2018-06-19 20:43:30.943104       0       9 0x49C941
-   21: 2018-06-19 20:45:28.161980       1      10 0x49C941                         c/a=20
-   22: 2018-06-19 20:45:29.478594       0      10 0x8FA7A9
+...
+    3: 2018-06-26 13:14:17.902941       1       1 0x420124                         a/b=20
+    4: 2018-06-26 13:14:18.909297       0       1 0x0CE213
+    5: 2018-06-26 13:16:30.076257       1       2 0x0CE213                         a/b=21
+    6: 2018-06-26 13:16:31.083559       0       2 0xA981CC
 ```
-This command outputs the latest blocks in the blockchain with a short summary about transactions. Here one can ensure that the provided transaction `c/a=20` indeed included in the block with `height` from the response. This fact verifies that Tendermint majority (more than 2/3 of configured validator nodes) agreed on including this transaction in the mentioned block which certified by their signatures.
+This script shows latest blocks in the blockchain with a short summary on their transactions. Here it's possible to see that provided transaction `a/b=21` was indeed included in the block with height returned with operation response. This means that Tendermint majority (more than 2/3 of the cluster nodes) agreed on including this transaction in the mentioned block which was certified by their signatures.
 
-The output of `parse_chain.py` also shows that the Tendermint blockchain stores `app_hash` from the block not in this block itself, but in the *next* block. For example, compare `HEIGHT` (`21`) and `HASH` (`0x8FA7A9`) from the previous query with `parse_chain` summary for 21st and 22nd blocks. Also note that `app_hash` is not changed after empty block's commit as expected, because empty blocks do not change the App state.
+It's also possible to see that `app_hash` is modified only in the block following the block with transactions. You could note that block 4 (empty) and block 5 (containing `a/b=21`) application hashes are the same. However, block 6 has it's application hash changed which corresponds to the change transaction `a/b=21` introduced into the application state.
 
 ## Implementation details
 
