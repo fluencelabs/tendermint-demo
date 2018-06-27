@@ -25,8 +25,8 @@ Because every computation is verified by the cluster nodes and computation outco
 	* [Verbose mode and proofs](#verbose-mode-and-proofs)
 * [Implementation details](#implementation-details)
 	* [Operations processing](#operations-processing)
-	* [Few notes on Tendermint transactions processing](#few-notes-on-tendermint-transactions-processing)
-	* [ABCI query processing on the single node](#abci-query-processing-on-the-single-node)
+	* [Few notes on transactions processing](#few-notes-on-transactions-processing)
+	* [Few notes on ABCI queries processing](#few-notes-on-abci-queries-processing)
 	* [Client implementation details](#client-implementation-details)
 	* [Transactions and Merkle hashes](#transactions-and-merkle-hashes)
 * [Incorrect behavior of the cluster nodes](#incorrect-behavior-of-the-cluster-nodes)
@@ -272,10 +272,11 @@ It's possible that a malicious node might silently drop incoming transactions so
 
 It is also possible that a malicious node might use a stale state and stale blockchain to serve queries. In this case the client has no way of knowing that the cluster state has advanced. Two approaches can be used, however – the first is to send a `no-op` transaction and wait for it to appear in the selected node blockchain. Because including a transaction into the blockchain means including and processing all transactions before it, the client will have a guarantee that the state has advanced. Another approach is to query multiple nodes at once about their last block height and compare it to the last block height of the selected node.
 
-### Few notes on Tendermint transactions processing
+### Few notes on transactions processing
 A transaction is processed primarily by two Tendermint modules: mempool and consensus.
 
 It appears in mempool once one of Tendermint [RPC](https://tendermint.readthedocs.io/projects/tools/en/master/specification/rpc.html) `broadcast` methods is invoked. After that the mempool invokes the application's `CheckTx` ABCI method. The application might reject the transaction if it's invalid, in which case the transaction is removed from the mempool and the node doesn't need to connect to other nodes. Otherwise Tendermint starts spreading transaction to other nodes.
+
 <p align="center">
 <img src="images/mempool.png" alt="Mempool" width="823px"/>
 </p>
@@ -283,17 +284,21 @@ It appears in mempool once one of Tendermint [RPC](https://tendermint.readthedoc
 The transaction remains for some time in mempool until consensus module of the current Tendermint proposer consumes it, includes to the newly created block (possibly together with several other transactions) and initiates a voting process for this block. If the transaction rate is intensive enough or exceeds the node throughput, it is possible that the transaction might wait during few blocks formation before it is eventually consumed by proposer. Note that transaction broadcast and the block proposal are processed independently, so it is totally possible that the block proposer is not the node originally accepted and broadcaster the transaction.
 
 If more than 2/3 of the cluster nodes voted for the proposal in a timely manner, the voting process ends successfully. In this case every Tendermint instance starts synchronizing the block with its local state machine. It consecutively invokes the state machine's ABCI methods: `BeginBlock`, `DeliverTx` (for each transaction), `EndBlock` and lastly, `Commit`. The state machine applies transactions in the order they are delivered, calculates the new `app_hash` and returns it to Tendermint Core. At that moment the block processing ends and the block becomes available to the outside world (via the RPC methods like `block` and `blockchain`). Tendermint keeps `app_hash` and the information about a voting process so it can include it into the next block metadata.
+
 <p align="center">
 <img src="images/consensus.png" alt="Consensus" width="823px"/>
 </p>
 
-### ABCI query processing on the single node
-ABCI queries that serve non-changing operations are described by the target key and the target `height`. They are initially processed by TM Core's **Query processor** which reroutes them to the State machine.
+### Few notes on ABCI queries processing
+ABCI queries carry the target key and the target `height`. They are initially processed by the Tendermint query processor which reroutes them to the state machine.
 
-The State machine processed the query by looking up for the target key in a state corresponding to the `height`-th block. So the State machine maintains several Query states to be able to process different target heights.
-![Query processing](images/beh_query.png)
+State machine processes the query by looking up for the target key in a state corresponding to the block with specified `height`. This means that the state machine has to maintain several states (corresponding to different block heights) to be able to serve different queries.
 
-Note that the State machine handles Mempool (`CheckTx`), Consensus (`DeliverTx`, `Commit`) and Query request pipelines concurrently. Also, it maintains separate states for those pipelines, so none of the *Query* states might be affected by 'real-time' *Consensus* state which is possibly modified by delivered transactions at the same time. This design, together with making the target height explicit, allows to isolate different states and avoid race conditions between transactions and queries.
+<p align="center">
+<img src="images/abci_queries.png" alt="ABCI queries" width="823px"/>
+</p>
+
+Note that state machine handles mempool (`CheckTx`), consensus (`DeliverTx`, `Commit`, etc) and queries pipelines concurrently. Because the target `height` is explicitly requested by queries, state machine maintains separate states for those pipelines. This way so serving queries is not affected when transactions are being concurrently delivered to the application.
 
 ### Client implementation details
 To make a reading (`get`) request, the Client first gets the latest verifiable `height` and its `app_hash` from the blockchain RPC. This is the last but one `height` (because the latest one could never be verifiable, its `app_hash` is not available). Then a single ABCI Query call with the `get` target key and the latest verifiable `height` is enough to get the required value together with Merkle proof and check that the value and the proof are consistent with `app_hash`.
