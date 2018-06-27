@@ -300,27 +300,20 @@ State machine processes the query by looking up for the target key in a state co
 
 Note that state machine handles mempool (`CheckTx`), consensus (`DeliverTx`, `Commit`, etc) and queries pipelines concurrently. Because the target `height` is explicitly requested by queries, state machine maintains separate states for those pipelines. This way so serving queries is not affected when transactions are being concurrently delivered to the application.
 
-### Client implementation details
-To make a reading (`get`) request, the Client first gets the latest verifiable `height` and its `app_hash` from the blockchain RPC. This is the last but one `height` (because the latest one could never be verifiable, its `app_hash` is not available). Then a single ABCI Query call with the `get` target key and the latest verifiable `height` is enough to get the required value together with Merkle proof and check that the value and the proof are consistent with `app_hash`.
-
-To make a writing (`put`) requests, the Client broadcasts the transaction to the cluster. Upon successful broadcast and insertion of the transaction into some block, the Client knows the corresponding block `height`. This `height` becomes verifiable as soon as the next block is committed (as mentioned earlier normally this happens in a short time, by default 1 second at most). Then to verify successful `put` (and to get computation result in case of the computational `put`), the Client just needs to make the ABCI Query with the target key and `height`, like it is described in the previous paragraph for the `get` request.
-
-`run` requests processing is very similar to `put` processing. The only difference that the Client generates a 'hidden' target key and use it to invoke the calculation via Tendermint transaction and then to read it via ABCI Query.
-
 ### Transactions and Merkle hashes
-The State machine does not recalculate Merkle hashes during `DeliverTx` processing. In case block consists of several transactions, the State machine modifies key tree and marks changed paths by clearing Merkle hashes until ABCI `Commit` processing.
+State machine does not recalculate Merkle hashes during `DeliverTx` processing. Instead, the state machine modifies the tree and marks changed paths by clearing Merkle hashes until ABCI `Commit` method is invoked. This allegedly should improve performance when there are several transactions in the block.
 
 <p align="center">
-<img src="images/keys_delivertx.png" alt="Keys after DeliverTx" width="625px"/>
+<img src="images/hierarchical_tree_updated.png" alt="Hierarchical tree after DeliverTx()" width="691px"/>
 </p>
 
 On `Commit` the State machine recalculates Merkle hash along changed paths only. Finally, the app returns the resulting root Merkle hash to TM Core and this hash is stored as `app_hash` for a corresponding block.
 
 <p align="center">
-<img src="images/keys_commit.png" alt="Keys after Commit" width="625px"/>
+<img src="images/hierarchical_tree_committed.png" alt="Hierarchical tree after Commit()" width="691px"/>
 </p>
 
-Note that described merkelized structure is just for demo purposes and not self-balanced, it remains efficient only until it the user transactions keep it relatively balanced. Something like [Patricia tree](https://github.com/ethereum/wiki/wiki/Patricia-Tree) should be more appropriate to achieve self-balancing.
+Note that described merkelized structure is used just for demo purposes and is not self-balanced. It remains efficient only while transactions keep it relatively balanced. Something like [Patricia tree](https://github.com/ethereum/wiki/wiki/Patricia-Tree) or Merkle B-Tree should be more appropriate to achieve self-balancing.
 
 ## Incorrect behavior of the cluster nodes
 As any viable distributed system, this Application is designed to handle incorrect or even malicious behavior of the cluster nodes. To avoid the over-complication the following statements considered:
