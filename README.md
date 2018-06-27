@@ -260,16 +260,17 @@ Here we can see that both (correct!) results correspond to the latest `app_hash`
 
 ## Implementation details
 
-### Operation processing in the cluster
-To initiate an operation the Client needs to connect only a single node of the cluster in normal conditions.
+### Operations processing
+To perform operations, a client normally connects to a single node of the cluster.
 
-Reading `get` requests are processed on a single node entirely. The node State machine has all required information to process such query because the state with key-value tree and their proofs is fully replicated. The node TM Core also has everything to process `get` query because the blockchain is also fully replicated and contains all information not only about blocks but also about the blocks signatures of other nodes and therefore can prove to the client that the provided response is consistent with those nodes signed the blockchain data.
+Querying requests such as `get` are processed entirely by a single node. Single node state machine has all the required data to process queries because the state is fully replicated. The blockchain is fully replicated as well and each block contains signatures of the nodes accepted it, so the client can verify that the `app_hash` return by the node is not a bogus one.
 
-Writing `run` and `put` requests implemented via Tendermint transactions, so a cluster-wide interaction is required in order to:
-* TM Core spreads the transaction to other nodes.
-* TM Cores reach consensus about including this transaction in a particular block.
-* TM Cores request their local State machine to apply this transaction to the state.
-* TM Cores obtain the `app_hash` from their local State machines.
+Processing effectful requests requires multiple nodes to reach consensus, however the client still sends a transaction to a single node. Tendermint is responsible in spreading this transaction to other nodes and reaching consensus.
+
+**Note**  
+It's possible that a malicious node might silently drop incoming transactions so they will never get propagated over the cluster. The client could monitor the blockchain to see if transaction got finally included in an accepted block, and if it didn't – resend it to other nodes. This functionality is not implemented yet.
+
+It is also possible that a malicious node might use a stale state and stale blockchain to serve queries. In this case the client has no way of knowing that the cluster state has advanced. Two approaches can be used, however – the first is to send a `no-op` transaction and wait for it to appear in the selected node blockchain. Because including a transaction into the blockchain means including and processing all transactions before it, the client will have a guarantee that the state has advanced. Another approach is to query multiple nodes at once about their last block height and compare it to the last block height of the selected node. This functionality is also not implemented yet.
 
 ### Transaction processing on the single node
 A single transaction is processing primarily by 2 TM Core modules: **Mempool** and **Consensus**.
