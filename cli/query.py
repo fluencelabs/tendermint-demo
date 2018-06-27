@@ -3,11 +3,10 @@ import sys, urllib, json, datetime, time, hashlib, sha3
 from common_parse_utils import read_json, get_sync_info, get_max_height
 
 
-CMD_RUN = "run"
 CMD_PUT_TX = "put"
 CMD_GET_QUERY = "get"
 CMD_LS_QUERY = "ls"
-ALL_COMMANDS = {CMD_RUN, CMD_PUT_TX, CMD_GET_QUERY, CMD_LS_QUERY}
+ALL_COMMANDS = {CMD_PUT_TX, CMD_GET_QUERY, CMD_LS_QUERY}
 
 def verify_merkle_proof(result, proof, app_hash):
 	parts = proof.split(", ")
@@ -44,13 +43,14 @@ def checked_abci_query(tmaddress, height, command, query, tentative_info):
 def print_response(attribute, value, always=False):
 	need_print = always or "v" in flags
 	if need_print:
-		print attribute.upper() + ":", (8 - len(attribute)) * " ", value
+		print attribute + ":", (8 - len(attribute)) * " ", value
 
 def print_checked_abci_query(tmaddress, height, command, query, tentative_info):
 	(height, result, proof, app_hash, success, message) = checked_abci_query(tmaddress, height, command, query, tentative_info)
+	app_hash_to_show = "0x" + app_hash[0:6] if app_hash != "" else "--------"
 	print_response("height", height)
-	print_response("app_hash", app_hash or "NOT_READY")
-	print_response("proof", (proof or "NO_PROOF").upper())
+	print_response("app_hash", app_hash_to_show or "NOT_READY")
+	# print_response("proof", (proof or "NO_PROOF").upper())
 	print result or "???"
 	if not success:
 		print_response("bad", message, True)
@@ -76,13 +76,9 @@ tmaddress = sys.argv[1]
 command = sys.argv[2]
 flags = "".join(sys.argv[3:(num_args - 1)])
 arg = sys.argv[num_args - 1]
-if command in {CMD_PUT_TX, CMD_RUN}:
-	if command == CMD_RUN:
-		query_key = "optarg"
-		tx = query_key + "=" + arg
-	else:
-		tx = arg
-		query_key = tx.split("=")[0]
+if command in {CMD_PUT_TX}:
+	tx = arg
+	query_key = tx.split("=")[0]
 	response = read_json(tmaddress + '/broadcast_tx_commit?tx="' + tx + '"')
 	if "error" in response:
 		print_response("error", response["error"]["data"], True)
@@ -93,12 +89,8 @@ if command in {CMD_PUT_TX, CMD_RUN}:
 			print_response("bad", log or "NO_MESSAGE", True)
 		else:
 			info = response["result"].get("deliver_tx", {}).get("info")
-			if command in {CMD_RUN} and info is not None:
-				wait_for_height(tmaddress, height + 1)
-				print_checked_abci_query(tmaddress, height, "get", query_key, info)
-			else:
-				print_response("height", height)
-				print_response("info", info or "EMPTY")
+			print_response("height", height)
+			# print_response("info", info or "EMPTY") TODO: what is info?
 elif command in {CMD_GET_QUERY, CMD_LS_QUERY}:
 	height = latest_provable_height(tmaddress)
 	print_checked_abci_query(tmaddress, height, command, arg, None)

@@ -20,7 +20,7 @@ for height in range(min_height, max_height + 1):
 		bulk_data = (read_json(tmaddress + "/blockchain?minHeight=%d&maxHeight=%d" % (height, last_fetched_height)))["result"]["block_metas"]
 
 	data = bulk_data[last_fetched_height - height]["header"]
-	
+
 	num_txs = data["num_txs"]
 	total_txs = data["total_txs"]
 	app_hash = data["app_hash"]

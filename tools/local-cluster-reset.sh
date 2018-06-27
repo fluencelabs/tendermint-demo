@@ -1,3 +1,5 @@
-source ./local-cluster-delete.sh
-source ./local-cluster-init.sh
-source ./local-cluster-start.sh
+CWD=`dirname $0`
+
+$CWD/local-cluster-delete.sh
+$CWD/local-cluster-init.sh
+$CWD/local-cluster-start.sh

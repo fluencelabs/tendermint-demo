@@ -1,6 +1,5 @@
-kill $(ps aux | grep 'tendermint node' | awk '{print $2}')
-kill $(ps aux | grep 'run 46.58' | awk '{print $2}')
-kill $(ps aux | grep 'judge' | awk '{print $2}')
+CWD=`dirname $0`
+$CWD/local-cluster-stop.sh
 
 rm -rf ~/.tendermint/cluster4/1
 rm -rf ~/.tendermint/cluster4/2
