@@ -29,7 +29,7 @@ Because every computation is verified by the cluster nodes and computation outco
 	* [Few notes on ABCI queries processing](#few-notes-on-abci-queries-processing)
 	* [Client implementation details](#client-implementation-details)
 	* [Transactions and Merkle hashes](#transactions-and-merkle-hashes)
-* [Incorrect behavior of the cluster nodes](#incorrect-behavior-of-the-cluster-nodes)
+* [Problematic situations review ](#problematic-situations-review)
 	* [A. Cases which the client can detect and handle](#a-cases-which-the-client-can-detect-and-handle)
 	* [B. Cases which the client can detect, but cannot handle](#b-cases-which-the-client-can-detect-but-cannot-handle)
 	* [C. Dispute cases](#c-dispute-cases)
@@ -66,6 +66,12 @@ Two major logical parts can be marked out in the demo application. One is a BFT 
 <p align="center">
 <img src="images/architecture.png" alt="Architecture" width="834px"/>
 </p>
+
+Demo application operates under the following set of assumptions:
+* the set of nodes in the cluster is immutable
+* public keys of cluster nodes are known to all network participants
+* the Judge is trustworthy
+* honest nodes can communicate with the client and the Judge
 
 ### State machine
 
@@ -315,19 +321,14 @@ On `Commit` the State machine recalculates Merkle hash along changed paths only.
 
 Note that described merkelized structure is used just for demo purposes and is not self-balanced. It remains efficient only while transactions keep it relatively balanced. Something like [Patricia tree](https://github.com/ethereum/wiki/wiki/Patricia-Tree) or Merkle B-Tree should be more appropriate to achieve self-balancing.
 
-## Incorrect behavior of the cluster nodes
-As any viable distributed system, this Application is designed to handle incorrect or even malicious behavior of the cluster nodes. To avoid the over-complication the following statements considered:
-* The Client is correct.
-* The Judge is correct. This might look as a serious limitation *but using some highly trusted source like Ethereum smart contract as the Judge in the real life scenario might be a valid solution.* This App implements the Judge as a very simple program just for demo purposes.
-* The nodes' public keys are known to all cluster participants.
-* The set of nodes in the cluster is immutable. A mutable node set might be handled too, but this is out of the scope of this demo Application.
-* At least one cluster node is correct (both the node's TM Core and the State machine are correct). *If the cluster size if large enough (20 and more nodes), the probability of such condition might be very high.*
-* The correct nodes can communicate with the client and the Judge.
-* It is needless to consider situations when some nodes are partly correct (correct TM Core and incorrect State machine or vice versa).
+## Problematic situations review 
+There is a number of situations which might potentially go wrong with this demo application. Some of them are already handled by the client, some of them could have been handled but not supported yet, some could be detected but can't be handled without the external intervention. Below we will try to list a few, just keep in mind that list is not comprehensive by any means:
 
-### A. Cases which the client can detect and handle
-1. The node is not available or RPC request to the node is timed out. In this case the Client just retries request to another node, its possible that the rest of nodes is enough to have a quorum and keep the App alive.
-2. The TM Core blockchain RPCs (`block`, `blockchain`) return response with inconsistent information: falsified transactions in the blocks, incorrect block hashes, incorrect vote signatures or signatures that are not matched with known public keys. In this case, the Client treats the node as incorrect (possibly Byzantine) and retries request to another node. *Not implemented yet*.
+* A node might become unavailable because of the network issues, failing hardware or simply because the malicious node decided to start dropping requests. If this happens when the client is making requests, it can get noticed using timeouts. In this case the client simply retries the request, but now sends it to a different node. For the cluster it also doesn't create too many issues, because even with a fraction of unavailable nodes the cluster is able to reach consensus.
+
+### Cases which the client can detect and handle
+1. The node is not available (for example, RPC requests to it have timed out). In this case the client simply retries the request with another node: it's perfectly possible that the rest of the nodes is enough to have a quorum.
+2. Node's Tendermint blockchain RPCs return an inconsistent information. For example, that might be incorrect block hashes, incorrect vote signatures or signatures that are not matched with known public keys. In this case, the Client treats the node as incorrect (possibly Byzantine) and retries request to another node. *Not implemented yet*.
 3. The TM Core ABCI Query returns wrong result/proof combination (inconsistent with the target height's `app_hash`). Like for Case 2, in this case, the Client treats the node as incorrect (possibly Byzantine) and retries request to another node.
 4. The TM Core blockchain RPCs return stale data. The Client expects some maximum time between the blocks, so observing the larger time since the latest block is the reason to retry the request to another node. Note that the current node cannot be considered Byzantine for sure because it might experience connection problems with the rest of the cluster. *Not implemented yet*.
 
