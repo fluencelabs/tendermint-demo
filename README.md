@@ -24,8 +24,8 @@ Because every computation is verified by the cluster nodes and computation outco
 	* [Compute operations (`run`)](#compute-operations-run)
 	* [Verbose mode and proofs](#verbose-mode-and-proofs)
 * [Implementation details](#implementation-details)
-	* [Operation processing in the cluster](#operation-processing-in-the-cluster)
-	* [Transaction processing on the single node](#transaction-processing-on-the-single-node)
+	* [Operations processing](#operations-processing)
+	* [Few notes on Tendermint transactions processing](#few-notes-on-tendermint-transactions-processing)
 	* [ABCI query processing on the single node](#abci-query-processing-on-the-single-node)
 	* [Client implementation details](#client-implementation-details)
 	* [Transactions and Merkle hashes](#transactions-and-merkle-hashes)
@@ -272,16 +272,20 @@ It's possible that a malicious node might silently drop incoming transactions so
 
 It is also possible that a malicious node might use a stale state and stale blockchain to serve queries. In this case the client has no way of knowing that the cluster state has advanced. Two approaches can be used, however – the first is to send a `no-op` transaction and wait for it to appear in the selected node blockchain. Because including a transaction into the blockchain means including and processing all transactions before it, the client will have a guarantee that the state has advanced. Another approach is to query multiple nodes at once about their last block height and compare it to the last block height of the selected node.
 
-### Transaction processing on the single node
-A single transaction is processing primarily by 2 TM Core modules: **Mempool** and **Consensus**.
+### Few notes on Tendermint transactions processing
+A transaction is processed primarily by two Tendermint modules: mempool and consensus.
 
-A transaction appears in Mempool after one of TM Core [RPC](https://tendermint.readthedocs.io/projects/tools/en/master/specification/rpc.html) `broadcast` method invoked. Mempool then invokes the State machine `CheckTx` ABCI method. The State machine might reject the transaction if it is invalid, in this case, the node does not need to connect other nodes and the rejected transaction removed. Otherwise, the transaction starts spreading through other nodes.
-![Mempool processing](images/beh_mempool.png)
+It appears in mempool once one of Tendermint [RPC](https://tendermint.readthedocs.io/projects/tools/en/master/specification/rpc.html) `broadcast` methods is invoked. After that the mempool invokes the application's `CheckTx` ABCI method. The application might reject the transaction if it's invalid, in which case the transaction is removed from the mempool and the node doesn't need to connect to other nodes. Otherwise Tendermint starts spreading transaction to other nodes.
+<p align="center">
+<img src="images/mempool.png" alt="Mempool" width="823px"/>
+</p>
 
-The transaction remains some time in Mempool until **Consensus** module of the current TM **proposer** consumes it, includes to the newly created block (possibly together with other transactions) and initiates the voting process for this **proposal** block. If the transaction rate is intensive enough or even exceed the node throughput, it is possible that the transaction may 'wait' during several block formation before it is eventually consumed by proposer's Consensus. *Note that the transaction broadcast and the block proposal are processed independently, it is possible but not required that the proposer is the node initially processed the broadcast.*
+The transaction remains for some time in mempool until consensus module of the current Tendermint proposer consumes it, includes to the newly created block (possibly together with several other transactions) and initiates a voting process for this block. If the transaction rate is intensive enough or exceeds the node throughput, it is possible that the transaction might wait during few blocks formation before it is eventually consumed by proposer. Note that transaction broadcast and the block proposal are processed independently, so it is totally possible that the block proposer is not the node originally accepted and broadcaster the transaction.
 
-If more than 2/3 of the nodes voted for the proposal in a timely manner, the voting process ends successfully. In this case, every TM Core starts the block synchronization with its local State machine. During this phase, the proposer and other nodes behave the same way. TM Core consecutively invokes the State machine's ABCI methods: `BeginBlock`, `DeliverTx` (for each transaction), `EndBlock`, and `Commit`. The State machine applies the block's transactions from `DeliverTx` sequence in their order, calculates the new `app_hash` and returns it to TM Core. At that moment the current block processing ends and the block becomes available outside (via RPC methods like `block` and `blockchain`). TM Core keeps `app_hash` and the information about a voting process for including in the next block's metadata.
-![Consensus processing](images/beh_consensus.png)
+If more than 2/3 of the cluster nodes voted for the proposal in a timely manner, the voting process ends successfully. In this case every Tendermint instance starts synchronizing the block with its local state machine. It consecutively invokes the state machine's ABCI methods: `BeginBlock`, `DeliverTx` (for each transaction), `EndBlock` and lastly, `Commit`. The state machine applies transactions in the order they are delivered, calculates the new `app_hash` and returns it to Tendermint Core. At that moment the block processing ends and the block becomes available to the outside world (via the RPC methods like `block` and `blockchain`). Tendermint keeps `app_hash` and the information about a voting process so it can include it into the next block metadata.
+<p align="center">
+<img src="images/consensus.png" alt="Consensus" width="823px"/>
+</p>
 
 ### ABCI query processing on the single node
 ABCI queries that serve non-changing operations are described by the target key and the target `height`. They are initially processed by TM Core's **Query processor** which reroutes them to the State machine.
