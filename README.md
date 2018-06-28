@@ -41,7 +41,7 @@ Because every computation is verified by the cluster nodes and computation outco
 The application is a proof-of-concept of a decentralized system with the following properties:
 * Support of arbitrary deterministic operations: simple reads or writes as well as complex computations.
 * Total safety of operations when more than 2/3 of the cluster is non-Byzantine.
-* Ability to notice and dispute an incorrect behavior when there is at least one non-Byzantine node.
+* Ability to dispute incorrect computations.
 * High availability: tolerance to simultaneous failures or Byzantine actions of some subset of nodes.
 * High throughput (up to 1000 transactions per second) and low latency (&#126;1-2 seconds) of operations.
 * Reasonable blockchain finality time (few seconds).
@@ -93,13 +93,15 @@ Such trusted location is provided by the Tendermint consensus engine. Cluster no
 
 ### Computations correctness
 
-It's not possible to expect that a cluster can't be taken over by Byzantine nodes. Let's assume that `n` nodes in the cluster were independently sampled from a large enough pool of the nodes containing a fraction of `q` Byzantine nodes. In this case the number of Byzantine nodes in the cluster (denoted by `X`) approximately follows a Binomial distribution `B(n, q)`. The probability of the cluster failing BFT assumptions is `Pr(X >= ceil(1/3 * n))` which for 10 cluster nodes and 20% of Byzantine nodes in the network pool is `~0.1`.
+It's possible to notice that a Byzantine node has voted for the two blocks with the same height and penalize it. The fact that a node signed these two blocks is an evidence _per se_. However, if two nodes disagree on how the state should change when transactions are applied, it's dangerous to let the cluster to resolve this for reasonable cluster sizes.
 
-This a pretty high probability, and if we want to keep the cluster size reasonably low to have desired cost efficiency another trick should work. We can allow any node in the cluster to escalate to the external trusted **Judge** if it disagrees with state transitions made by the rest of the nodes. In this case, all nodes in the cluster need to be Byzantine to keep the **Judge** uninformed. For the considered case the probability of such event is `~1E-7`.
+Let's imagine we have a case that the node `A` says the new state should be S<sub>a</sub> and node `B` – S<sub>b</sub>. We could ask nodes in the cluster to vote for one of the states, and if S<sub>a</sub> got more than 2/3 of the votes against it, penalize the node `A`.
 
-This way it's possible to improve the probability of noticing an incorrect behavior almost by six orders of magnitude. However, there is a significant difference between the two approaches. Once the cluster has reached consensus, the state transition is made and potentially incorrect results can be immediately used by the client. An escalation mechanism allows to notice an incorrect cluster behavior only *post factum*.
+Now, let's assume that `n` nodes in the cluster were independently sampled from a large enough pool of the nodes containing a fraction of `q` Byzantine nodes. In this case the number of Byzantine nodes in the cluster (denoted by `X`) approximately follows a Binomial distribution `B(n, q)`. The probability of the cluster having more than 2/3 Byzantine nodes is `Pr(X >= ceil(2/3 * n))` which for 7 cluster nodes and 20% of Byzantine nodes in the network pool is `~0.5%`. 
 
-To compensate, a **Judge** can penalize malicious nodes by forfeiting their security deposits for the benefit of the client. However, even in this case a client can't be a mission critical application where no amount of compensation would offset the damage made.
+This means, with a pretty high probability we might have a cluster penalizing a node that have computed the state update correctly. If we want to keep the cluster size reasonably low we can't let the cluster make decisions of that matter. Instead, we can allow any node in the cluster to escalate to the external trusted Judge if it disagrees with state transitions made by any other node. In this case, it's not possible to penalize an honest node.
+
+It's important to note that in the case of 2/3+ Byzantine nodes the cluster might provide an incorrect result to the unsuspecting client. The rest of the nodes which are honest might escalate to the Judge if they are not excluded from the communication by the Byzantine nodes (actually, this situation requires further investigation). However, in this case the dispute might get resolved significant time later. To compensate, the Judge can penalize malicious nodes by forfeiting their security deposits for the benefit of the client. However, even in this case a client can't be a mission critical application where no amount of compensation would offset the damage made.
 
 ### Tendermint
 
@@ -273,11 +275,6 @@ Querying requests such as `get` are processed entirely by a single node. Single 
 
 Processing effectful requests such as `put` requires multiple nodes to reach consensus, however the client still sends a transaction to a single node. Tendermint is responsible in spreading this transaction to other nodes and reaching consensus.
 
-**Note: potential issues**  
-It's possible that a malicious node might silently drop incoming transactions so they will never get propagated over the cluster. The client could monitor the blockchain to see if transaction got finally included in an accepted block, and if it didn't – resend it to other nodes.
-
-It is also possible that a malicious node might use a stale state and stale blockchain to serve queries. In this case the client has no way of knowing that the cluster state has advanced. Two approaches can be used, however – the first is to send a `no-op` transaction and wait for it to appear in the selected node blockchain. Because including a transaction into the blockchain means including and processing all transactions before it, the client will have a guarantee that the state has advanced. Another approach is to query multiple nodes at once about their last block height and compare it to the last block height of the selected node.
-
 ### Few notes on transactions processing
 A transaction is processed primarily by two Tendermint modules: mempool and consensus.
 
@@ -326,16 +323,17 @@ There is a number of situations which might potentially go wrong with this demo 
 
 * A node might become unavailable because of the network issues, failing hardware or simply because the malicious node decided to start dropping requests. If this happens when the client is making requests, it can get noticed using timeouts. In this case the client simply retries the request, but now sends it to a different node. For the cluster it also doesn't create too many issues, because even with a fraction of unavailable nodes the cluster is able to reach consensus.
 
-### Cases which the client can detect and handle
-1. The node is not available (for example, RPC requests to it have timed out). In this case the client simply retries the request with another node: it's perfectly possible that the rest of the nodes is enough to have a quorum.
-2. Node's Tendermint blockchain RPCs return an inconsistent information. For example, that might be incorrect block hashes, incorrect vote signatures or signatures that are not matched with known public keys. In this case, the Client treats the node as incorrect (possibly Byzantine) and retries request to another node. *Not implemented yet*.
-3. The TM Core ABCI Query returns wrong result/proof combination (inconsistent with the target height's `app_hash`). Like for Case 2, in this case, the Client treats the node as incorrect (possibly Byzantine) and retries request to another node.
-4. The TM Core blockchain RPCs return stale data. The Client expects some maximum time between the blocks, so observing the larger time since the latest block is the reason to retry the request to another node. Note that the current node cannot be considered Byzantine for sure because it might experience connection problems with the rest of the cluster. *Not implemented yet*.
+* It's possible that a Byzantine node might silently drop incoming transactions so they will never get propagated over the cluster. The client could monitor the blockchain to see if transaction got finally included in an accepted block, and if it didn't – resend it to other nodes.
 
-### B. Cases which the client can detect, but cannot handle
-After detecting those cases the Client is sure that the cluster **liveness** is violated. An external interference is required to restore it.
-1. The Client retried the request for cases A1-A4 for all cluster nodes and they all are failed.
-2. The cluster cannot commit `height+1`-th block while the Client waits for it to have `height`-th block verifiable. This is actually a subcase of the previous case, but it appears if the cluster recently committed `height`-th block during `put` or `run` processing. The failure to progress in this case probably means that the nodes have different `app_hash`-es for `height`-th block, so this is likely an evidence of the **dispute** in the cluster.
+* It is also possible that a Byzantine (or simply struggling) node might use a stale state and stale blockchain to serve queries. In this case the client has no way of knowing that the cluster state has advanced. Few different approaches can be used, however – the first is to send a `no-op` transaction and wait for it to appear in the selected node blockchain. Because including a transaction into the blockchain means including and processing all transactions before it, the client will have a guarantee that the state has advanced. Another approach is to query multiple nodes at once about their last block height and compare it to the last block height of the selected node. Finally, the client might just expect some maximum time until the next block is formed and switch to another node if nothing happens.
+
+* When querying Tendermint RPCs on a particular node, it might return an inconsistent information. For example, that might be incorrect block hashes, incorrect vote signatures or signatures that are not matched with known public keys. In this case the client can treat the node as possibly Byzantine and retries request to another node.
+
+* When making queries to a particular node's state, a combination of `result + proof` which is inconsistent with the target `app_hash` might be returned. In this case the client also can't trust this node and should switch to another one.
+
+* The cluster cannot commit the block `k+1` while the сlient waits for it to have state `k` verifiable. Not much can be done here; possible reasons might be too many failed (or Byzantine) nodes to have the quorum for consensus. A subclass of this issue is when a consensus wasn't reached because there was a disagreement on the next `app_hash` among the nodes. In this case at least one node has performed an incorrect state update, and it's probable that a dispute was escalated to the Judge.
+
+* If there are too many Byzantine nodes, consensus over the incorrect state transition might be reached. If there is at least one honest node in the cluster, it might escalate a dispute to the Judge (unless it was excluded from the cluster communication by colluding Byzantine nodes).
 
 ### C. Dispute cases
 Dispute cases, in general, cannot be detected by the client, because the client is normally satisfied by the first successful response while retrying response to the cluster nodes. The external Judge is available to the correct nodes in order to prevent such situations (instead of multicasting the client requests to all cluster nodes and comparing the responses).
