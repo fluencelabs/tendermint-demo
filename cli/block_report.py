@@ -1,3 +1,19 @@
+#
+#  Copyright 2018 Fluence Labs Limited
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+#
+
 #!/usr/bin/python
 import sys, urllib, json, datetime, time
 import matplotlib.pyplot as plt
@@ -24,7 +40,7 @@ else:
 	min_height = max_height
 	while min_height >= 3 and get_num_txs(read_json(tmaddress + "/block?height=%d" % (min_height - 1))) > 0:
 		min_height -= 1
-	
+
 accsize = 0
 acclatency = 0
 minlatency = 1e20
@@ -41,7 +57,7 @@ txstat = []
 for height in range(min_height, max_height + 1):
 	data = read_json(tmaddress + "/block?height=%d" % height)
 	num_txs = get_num_txs(data)
-	
+
 	blocktimetxt = data["result"]["block"]["header"]["time"]
 	blocktime = parse_utc(blocktimetxt)
 
@@ -55,12 +71,12 @@ for height in range(min_height, max_height + 1):
 	txs = data["result"]["block"]["data"]["txs"]
 	if txs:
 		for index, txhex in enumerate(txs):
-			txbytes = bytearray.fromhex(txhex)# if re.fullmatch(r"^[0-9a-fA-F]$", txhex) is not None 
-			key = chr(txbytes[0]) if chr(txbytes[1]) == '=' else "*" 
+			txbytes = bytearray.fromhex(txhex)# if re.fullmatch(r"^[0-9a-fA-F]$", txhex) is not None
+			key = chr(txbytes[0]) if chr(txbytes[1]) == '=' else "*"
 			connindex = uvarint(txbytes[2:8])
 			txnumber = uvarint(txbytes[8:16])
 			hostnamehash = txhex[32:64]
-			
+
 			txtime = uvarint(txbytes[32:40]) / 1e6
 			if txtime < 1e9:
 				txtime *= 1e6 # legacy support
@@ -101,7 +117,7 @@ stepstat = []
 for i in range(steps + 1):
 	t = firsttx + (lastblock - firsttx) / steps * i
 	while curindex < len(txstat) and txstat[curindex][0] <= t:
-		cursum += txstat[curindex][1] 
+		cursum += txstat[curindex][1]
 		curindex += 1
 	stepstat.append(cursum)
 f = plt.figure(figsize=(15, 5))
